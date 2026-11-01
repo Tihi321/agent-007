@@ -5,6 +5,7 @@
  */
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { extname, join } from "node:path";
+import { lockoutNotice, writeOwnerNotice } from "../approval/ownerNotices.js";
 import type { PresetConfig, TermsAccepted } from "../bots/schema.js";
 import type { WebAudit } from "./audit.js";
 import { ApprovalBroker } from "./chat/approvals.js";
@@ -79,7 +80,10 @@ export function loadWebAssets(dir: string): Map<string, { body: Buffer; type: st
 
 export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
   const now = o.now ?? Date.now;
-  const stack = createWebStack({ dataDir: o.dataDir, port: o.port, publicHosts: o.publicHosts, ...(o.audit ? { audit: o.audit } : {}), now, ...(o.onLockout ? { onLockout: o.onLockout } : {}) });
+  // L2: a lockout tells the owner on Telegram. Default: a content-free notice in the control folder, sent by the agent's own bot (L8)
+  const controlDir = o.controlDir;
+  const onLockout = o.onLockout ?? (controlDir ? (key: string, ms: number) => void writeOwnerNotice(controlDir, lockoutNotice(key, ms)) : undefined);
+  const stack = createWebStack({ dataDir: o.dataDir, port: o.port, publicHosts: o.publicHosts, ...(o.audit ? { audit: o.audit } : {}), now, ...(onLockout ? { onLockout } : {}) });
   await checkStartup(
     { host: "127.0.0.1", port: o.port, audit: stack.audit },
     { mode: o.mode, loadStores: () => stack.loadStores(), ...(o.serveStatus ? { serveStatus: o.serveStatus } : {}), ...(o.clockSkewMs ? { clockSkewMs: o.clockSkewMs } : {}) },

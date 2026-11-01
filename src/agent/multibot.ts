@@ -38,6 +38,7 @@ import { createBotBusExtension } from "../botbus/tools.js";
 import { startBotRoomMirror } from "../botroom/mirror.js";
 import type { BotRoomMirror, RoomApi } from "../botroom/mirror.js";
 import type { KillSwitchHandle } from "../approval/killSwitch.js";
+import { watchOwnerNotices } from "../approval/ownerNotices.js";
 import type { Config } from "../config/schema.js";
 import type { RunnerSelection } from "../config/load.js";
 import type { Secrets } from "../config/secrets.js";
@@ -132,6 +133,8 @@ export interface BotParts {
 }
 
 export interface MultiBotHandle {
+  /** L2: the watcher of web gateway notices in the control folder (sent to the owner through `main`). */
+  readonly ownerNotices: { poll(): Promise<number>; stop(): void } | undefined;
   readonly manager: BotManager;
   readonly bus: InProcessBotBus;
   readonly gate: LocalGate;
@@ -581,6 +584,12 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
     ...(seams.botRoomApi ? { api: seams.botRoomApi } : {}),
   });
 
+  // L2: lockout notices from the web gateway (which holds no Telegram token) reach the owner through this process's own bot
+  const ownerBotId = botsById.has("main") ? "main" : resolved.bots[0]?.id;
+  const ownerNotices = ownerBotId
+    ? watchOwnerNotices({ controlDir: config.paths.controlDir, send: (text) => tellUser(ownerBotId, text), onError: (e) => log.warn("web.owner_notice_failed", { error: e instanceof Error ? e.name : "error" }) })
+    : undefined;
+
   let stopped = false;
   return {
     manager,
@@ -595,9 +604,11 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
     part: (id) => parts.get(id),
     parts: () => [...parts.values()],
     statusLines,
+    ownerNotices,
     async stop() {
       if (stopped) return;
       stopped = true;
+      ownerNotices?.stop();
       mirror?.stop();
       provenance.stop();
       await manager.stop();

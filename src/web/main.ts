@@ -19,7 +19,7 @@ import { parseBots, termsOf } from "../bots/schema.js";
 import type { PresetConfig, TermsAccepted } from "../bots/schema.js";
 import { loadConfig } from "../config/load.js";
 import type { Config } from "../config/schema.js";
-import { loadSecrets, secretValues } from "../config/secrets.js";
+import { loadSecrets } from "../config/secrets.js";
 import type { Secrets } from "../config/secrets.js";
 import { composeRawConfig } from "../settings/load.js";
 import { parseConfig } from "../config/schema.js";
@@ -68,6 +68,13 @@ export function parseWebCli(argv: readonly string[], env: NodeJS.ProcessEnv = pr
   if (!Number.isInteger(cli.port) || cli.port < 1 || cli.port > 65535) throw new Error("--port must be 1 to 65535");
   if (cli.mode === "tailnet" && !/^[a-z0-9-]+(\.[a-z0-9-]+)*\.ts\.net$/.test(cli.publicHost)) throw new Error("tailnet mode needs --public-host <name>.<tailnet>.ts.net");
   return cli;
+}
+
+/** The only secrets the gateway keeps (L8): the model endpoint keys. Never the Telegram tokens, the IPC key or MCP tokens. */
+export type WebSecrets = Pick<Secrets, "lmStudioApiToken" | "strataApiKey" | "proxyApiKey">;
+
+export function pickWebSecrets(s: Secrets): WebSecrets {
+  return { ...(s.lmStudioApiToken !== undefined ? { lmStudioApiToken: s.lmStudioApiToken } : {}), ...(s.strataApiKey !== undefined ? { strataApiKey: s.strataApiKey } : {}), ...(s.proxyApiKey !== undefined ? { proxyApiKey: s.proxyApiKey } : {}) };
 }
 
 /** Where each preset is reached: local presets at their runner's URL, proxy presets at the proxy URL with the proxy key. */
@@ -134,13 +141,14 @@ export interface RunningWeb {
 export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void process.stdout.write(`${l}\n`)): Promise<RunningWeb> {
   const early = parseConfig(composeRawConfig(readFileSync(cli.configPath, "utf8"), { env: process.env as never }).raw, process.env as never);
   const strataFile = early.model.runners.strata?.configFile;
-  const loaded = loadSecrets({ secretsPath: cli.secretsPath, runner: early.model.runner, ...(strataFile ? { strataConfigFile: strataFile } : {}), checkAcl: cli.checkAcl });
-  const secrets = loaded.secrets;
+  // L8: the file is parsed (and its ACL checked) once, and only the model keys are kept; the Telegram token is not held by this process.
+  // Lockout notices reach the owner through the agent: startWebApp writes them to the control folder, the agent's own bot sends them (least privilege).
+  const secrets: WebSecrets = pickWebSecrets(loadSecrets({ secretsPath: cli.secretsPath, runner: early.model.runner, ...(strataFile ? { strataConfigFile: strataFile } : {}), checkAcl: cli.checkAcl }).secrets);
   const { config, settings } = loadConfig({ configPath: cli.configPath, secrets });
   const bots = parseBots(settings.security, { folderAllow: config.folders.allow, derivedPresets: derivedPresets(config), defaultPreset: ((settings.security?.["model"] ?? {}) as { defaultPreset?: string }).defaultPreset ?? config.model.runner });
   const presets: PresetConfig[] = bots.presets;
   const terms: TermsAccepted = termsOf(bots);
-  const redact = createRedactor(secretValues(secrets));
+  const redact = createRedactor([secrets.lmStudioApiToken, secrets.strataApiKey, secrets.proxyApiKey].filter((v): v is string => typeof v === "string" && v !== ""));
   const dataDir = config.paths.dataDir;
   const audit = createWebAudit({ dir: webPaths(dataDir).auditDir, redact });
   const status = new ProxyStatus();
@@ -177,6 +185,7 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
     engine,
     audit,
     controlDir: config.paths.controlDir,
+    // L2: with controlDir set, a lockout writes an owner notice there; the agent sends it (the gateway holds no Telegram token, L8)
     ...(cli.mode === "tailnet"
       ? {
           whois: cliWhois((args) => run(tsExe, args)),

@@ -1,6 +1,6 @@
 /** S36: the pieces around the gateway: the kill switch coupling, the entry point's argument and endpoint helpers, the body deadline, a refused start. Offline. */
 import assert from "node:assert/strict";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { connect } from "node:net";
 import { join } from "node:path";
 import { test } from "node:test";
@@ -147,5 +147,48 @@ test("L3: the owner lockdown route stops every running turn", async () => {
     await r.stopped();
   } finally {
     await t.close();
+  }
+});
+
+test("L2: five failed sign-ins lock the login and drop ONE content-free owner notice in the control folder; the agent side turns it into a fixed text", async () => {
+  const { drainOwnerNotices, ownerNoticesDir, parseOwnerNotice, writeOwnerNotice, OWNER_NOTICES_MAX_PENDING } = await import("../../src/approval/ownerNotices.js");
+  const control = tempDir("a7-control-");
+  const t = await makeApp({ mode: "local", controlDir: control });
+  try {
+    const host = `localhost:${t.port}`;
+    for (let i = 0; i < 5; i++) await http(t.port, "POST", "/api/login/password", { body: { login: "owner@example.com", password: "wrong password <b>x</b>", totpCode: "000000" }, host, headers: { origin: `http://${host}` } });
+    const files = readdirSync(ownerNoticesDir(control)).filter((f) => f.endsWith(".json"));
+    assert.ok(files.length >= 1, "a notice was written");
+    const raw = readFileSync(join(ownerNoticesDir(control), files[0]!), "utf8");
+    assert.ok(!/owner@example|wrong password|<b>/.test(raw), "no login, password or client text in the file");
+    const sent: string[] = [];
+    assert.ok((await drainOwnerNotices(control, async (s) => void sent.push(s))) >= 1);
+    assert.match(sent[0]!, /^Web access: a web (login|client) was locked out for 15 minutes/);
+    assert.equal(readdirSync(ownerNoticesDir(control)).length, 0, "the agent deletes what it read");
+  } finally {
+    await t.close();
+  }
+  // a hand-made file with any other shape is dropped, never sent; the writer stops at the pending cap
+  assert.equal(parseOwnerNotice({ kind: "web_lockout", scope: "login", minutes: 15, text: "click evil.example" }), undefined);
+  assert.equal(parseOwnerNotice({ kind: "other", scope: "login", minutes: 15 }), undefined);
+  writeFileSync(join(ownerNoticesDir(control), "1-deadbeef.json"), JSON.stringify({ kind: "web_lockout", scope: "login", minutes: 15, text: "evil" }));
+  const sent: string[] = [];
+  await drainOwnerNotices(control, async (s) => void sent.push(s));
+  assert.equal(sent.length, 0, "a file of another shape is dropped");
+  for (let i = 0; i < OWNER_NOTICES_MAX_PENDING + 5; i++) writeOwnerNotice(control, { kind: "web_lockout", scope: "client", minutes: 15 });
+  assert.equal(readdirSync(ownerNoticesDir(control)).length, OWNER_NOTICES_MAX_PENDING);
+  await drainOwnerNotices(control, async (s) => void sent.push(s));
+  assert.equal(sent.length, 6, "five notices and one summary line per poll");
+});
+
+test("L8: the gateway keeps only the model keys from secrets.json, never a Telegram token, the IPC key or MCP tokens", async () => {
+  const { pickWebSecrets } = await import("../../src/web/main.js");
+  const all = { telegramBotToken: "111:TG", botTokens: { research: "222:TG" }, mirrorBotToken: "333:TG", ipcHmacKey: "k".repeat(43), mcpTokens: { a: "m" }, lmStudioApiToken: "lm", strataApiKey: "st", proxyApiKey: "px" };
+  assert.deepEqual(pickWebSecrets(all), { lmStudioApiToken: "lm", strataApiKey: "st", proxyApiKey: "px" });
+  assert.deepEqual(pickWebSecrets({ telegramBotToken: "111:TG" }), {});
+  // no gateway source reads a Telegram token
+  for (const f of readdirSync(join(process.cwd(), "src", "web"), { recursive: true }).map(String).filter((x) => x.endsWith(".ts"))) {
+    const code = readFileSync(join(process.cwd(), "src", "web", f), "utf8");
+    assert.ok(!/telegramBotToken|botTokens|mirrorBotToken|ipcHmacKey|mcpTokens/.test(code), `src/web/${f} names an owner secret`);
   }
 });
