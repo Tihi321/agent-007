@@ -47,6 +47,7 @@ export function createWebStack(o: WebStackOptions) {
   const sessions = new SessionManager({ sessions: sessionFile, users, ...(o.now ? { now: o.now } : {}) });
   const auth = new AuthService({ users, credentials, claimFile: paths.claimFile, box, sessions, lockout, audit, port: o.port, publicHosts: o.publicHosts, ...(o.now ? { now: o.now } : {}) });
   return {
+    dataDir: o.dataDir,
     paths,
     users,
     invites,

@@ -51,7 +51,8 @@ export interface RouteCtx {
 export type RouteResult = { status: number; body: unknown; headers?: Record<string, string | string[]> } | { handled: true };
 
 export interface RouteDef {
-  auth: "public" | "session" | "owner";
+  /** `admin` = owner or admin role. */
+  auth: "public" | "session" | "admin" | "owner";
   /** Needs a passkey or TOTP confirmation under 5 minutes old (I56). */
   stepUp?: boolean;
   /** The handler writes the response itself (SSE). */
@@ -246,9 +247,9 @@ export async function startGateway(o: GatewayOptions): Promise<RunningGateway> {
         if (method === "POST") req.resume();
         return sendJson(res, 401, { error: "no_session" });
       }
-      if (route.auth === "owner" && session.role !== "owner") {
+      if ((route.auth === "owner" && session.role !== "owner") || (route.auth === "admin" && session.role !== "owner" && session.role !== "admin")) {
         if (method === "POST") req.resume();
-        o.audit.write({ kind: "tool_denied", user: session.userId, detail: { reason: "owner route", route: url.pathname } });
+        o.audit.write({ kind: "tool_denied", user: session.userId, detail: { reason: `${route.auth} route`, route: url.pathname } });
         return sendJson(res, 403, { error: "forbidden" });
       }
       if (method === "POST") {

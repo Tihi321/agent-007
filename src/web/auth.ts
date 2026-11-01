@@ -80,7 +80,7 @@ export interface LoggedIn {
 
 const normRecovery = (c: string): string => c.replace(/[\s-]/g, "").toUpperCase();
 
-function newRecoveryCodes(): { plain: string[]; hashes: string[] } {
+export function newRecoveryCodes(): { plain: string[]; hashes: string[] } {
   const plain = Array.from({ length: RECOVERY_CODE_COUNT }, () => {
     const t = randomToken(8).replace(/[^A-Za-z0-9]/g, "").toUpperCase().padEnd(10, "7").slice(0, 10);
     return `${t.slice(0, 5)}-${t.slice(5)}`;
