@@ -1,5 +1,6 @@
 /** S31: TOTP vectors, WebAuthn with a software authenticator, owner claim, login matrix, sessions, CLI. Offline. */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 import { AuthError, GENERIC_FAIL } from "../../src/web/auth.js";
@@ -368,4 +369,48 @@ test("CLI: owner-code prints a code once, refuses a second owner without --reset
   assert.match(l3.join(), /ended 1 web session/);
   assert.equal(runWebCli(["owner-code"], { out: () => undefined }), 2);
   assert.equal(runWebCli(["owner-code", "--data-dir", s.dir, "--bogus"], { out: () => undefined }), 2);
+});
+
+test("L5: an AT-flagged authData cut short is a 401-class verification failure, never a 500", async () => {
+  const rp = { rpId: PUBLIC, origin: `https://${PUBLIC}` };
+  const shortAtt = (challenge: string, extra: number) => {
+    const authData = Buffer.concat([createHash("sha256").update(rp.rpId).digest(), Buffer.from([0x45]), Buffer.alloc(4), Buffer.alloc(extra)]);
+    return {
+      id: "x",
+      clientDataJSON: Buffer.from(JSON.stringify({ type: "webauthn.create", challenge, origin: rp.origin })).toString("base64url"),
+      attestationObject: cborEncode(new Map<never, never>([["fmt" as never, "none" as never], ["attStmt" as never, new Map() as never], ["authData" as never, authData as never]])).toString("base64url"),
+    };
+  };
+  const store = new ChallengeStore();
+  for (const extra of [0, 1, 10, 17]) {
+    const opts = creationOptions(store, { ...rp, userId: "a".repeat(32), login: "a@x.com", displayName: "A", existing: [] });
+    assert.throws(() => finishRegistration(store, shortAtt(opts.challenge, extra)), (e: Error) => e instanceof WebAuthnError, `authData of ${37 + extra} bytes`);
+  }
+  // through the auth service the same input becomes AuthError "invalid", which the route maps to 401
+  const s = mkStack();
+  const owner = await claimOwner(s);
+  const session = s.stack.sessions.resolve(owner.sessionId, { ip: "local", ua: "test" })!;
+  const begin = s.stack.auth.passkeyRegisterBegin(session, LOCAL);
+  assert.throws(() => s.stack.auth.passkeyRegisterFinish(session, { ...shortAtt(begin.challenge, 5), label: "x" }), (e: AuthError) => e instanceof AuthError && e.code === "invalid");
+});
+
+test("L5: the challenge store caps each user (or client) so one cannot exhaust the global cap", () => {
+  const rp = { rpId: PUBLIC, origin: `https://${PUBLIC}` };
+  const store = new ChallengeStore(Date.now, { maxTotal: 50, maxPerKey: 4 });
+  const mallory = "b".repeat(32);
+  for (let i = 0; i < 500; i++) requestOptions(store, { ...rp, userId: mallory, credentialIds: [] });
+  for (let i = 0; i < 500; i++) requestOptions(store, { ...rp, credentialIds: [], key: "client:ts:mallory" });
+  assert.ok(store.size <= 8, `mallory holds at most 2 x 4 challenges, has ${store.size}`);
+  // alice still gets a challenge, and her newest one works; the oldest of a full key is dropped, not the newest
+  const dev = new SoftAuthenticator();
+  const alice = "c".repeat(32);
+  const first = creationOptions(store, { ...rp, userId: alice, login: "a@x.com", displayName: "A", existing: [] });
+  for (let i = 0; i < 4; i++) creationOptions(store, { ...rp, userId: alice, login: "a@x.com", displayName: "A", existing: [] });
+  const last = creationOptions(store, { ...rp, userId: alice, login: "a@x.com", displayName: "A", existing: [] });
+  assert.throws(() => finishRegistration(store, dev.create({ challenge: first.challenge, ...rp })), /unknown or expired/);
+  assert.equal(finishRegistration(store, dev.create({ challenge: last.challenge, ...rp })).userId, alice);
+  // the global cap still holds across many distinct keys
+  assert.throws(() => {
+    for (let i = 0; i < 100; i++) requestOptions(store, { ...rp, credentialIds: [], key: `client:${i}` });
+  }, /too many pending challenges/);
 });

@@ -182,7 +182,7 @@ export class AuthService {
     const secret = newTotpSecret();
     this.#claims.set(claimId, { userId, totpSecret: secret, reset, expiresAt: this.#now() + OWNER_CODE_TTL_MS, ceremony });
     const out: { claimId: string; totp: { secret: string; uri: string }; passkey?: CreationOptions } = { claimId, totp: { secret, uri: otpauthUri(secret, "owner") } };
-    if (ceremony) out.passkey = creationOptions(this.challenges, { ...ceremony, userId, login: "owner", displayName: "Owner", existing: [] });
+    if (ceremony) out.passkey = creationOptions(this.challenges, { ...ceremony, userId, login: "owner", displayName: "Owner", existing: [], key: "claim" });
     return out;
   }
 
@@ -329,7 +329,7 @@ export class AuthService {
     const l = typeof login === "string" ? login.trim() : "";
     const found = l ? this.#findUser(l, ctx) : undefined;
     const ids = found ? (this.#d.credentials.read().users[found.id]?.passkeys ?? []).map((p) => p.id) : [];
-    return requestOptions(this.challenges, { ...cer, credentialIds: ids });
+    return requestOptions(this.challenges, { ...cer, credentialIds: ids, key: `client:${ctx.ip}` });
   }
 
   loginPasskeyFinish(req: { login?: unknown; id?: unknown; clientDataJSON?: unknown; authenticatorData?: unknown; signature?: unknown }, ctx: AuthContext): LoggedIn {

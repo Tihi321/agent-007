@@ -99,26 +99,47 @@ const fromB64u = (s: unknown, what: string): Buffer => {
 
 interface PendingChallenge {
   kind: "create" | "get";
+  /** Who asked (a user id, or a client key for an anonymous sign-in): the per-key cap. */
+  key?: string;
   rpId: string;
   origin: string;
   userId?: string;
   expiresAt: number;
 }
 
-/** Single-use challenges in memory (a restart drops them; the user just starts again). */
+/** Pending challenges allowed in total, and per key (one user, or one client for an anonymous sign-in). */
+export const CHALLENGE_MAX_TOTAL = 1000;
+export const CHALLENGE_MAX_PER_KEY = 8;
+
+/**
+ * Single-use challenges in memory (a restart drops them; the user just starts again). Each key (the user id, or the client for an
+ * anonymous sign-in) keeps at most `CHALLENGE_MAX_PER_KEY`: a new one drops that key's oldest, so one user or client can never fill the
+ * global cap and lock everybody else out of passkeys (L5).
+ */
 export class ChallengeStore {
   readonly #m = new Map<string, PendingChallenge>();
   readonly #now: () => number;
-  constructor(now: () => number = Date.now) {
+  readonly #maxTotal: number;
+  readonly #maxPerKey: number;
+  constructor(now: () => number = Date.now, limits: { maxTotal?: number; maxPerKey?: number } = {}) {
     this.#now = now;
+    this.#maxTotal = limits.maxTotal ?? CHALLENGE_MAX_TOTAL;
+    this.#maxPerKey = limits.maxPerKey ?? CHALLENGE_MAX_PER_KEY;
   }
   issue(p: Omit<PendingChallenge, "expiresAt">): string {
     const now = this.#now();
     for (const [k, v] of this.#m) if (v.expiresAt < now) this.#m.delete(k);
-    if (this.#m.size > 1000) throw new WebAuthnError("too many pending challenges");
+    const key = p.key ?? (p.userId ? `user:${p.userId}` : "anonymous");
+    const mine = [...this.#m].filter(([, v]) => v.key === key); // Map order = issue order, oldest first
+    for (let i = 0; i <= mine.length - this.#maxPerKey; i++) this.#m.delete((mine[i] as [string, PendingChallenge])[0]);
+    if (this.#m.size >= this.#maxTotal) throw new WebAuthnError("too many pending challenges");
     const c = b64u(randomBytes(32));
-    this.#m.set(c, { ...p, expiresAt: now + 5 * 60_000 });
+    this.#m.set(c, { ...p, key, expiresAt: now + 5 * 60_000 });
     return c;
+  }
+  /** Pending challenges (tests). */
+  get size(): number {
+    return this.#m.size;
   }
   /** Removes and returns the challenge (single use), or undefined when unknown or expired. */
   take(challenge: string): PendingChallenge | undefined {
@@ -139,8 +160,8 @@ export interface CreationOptions {
   excludeCredentials: { type: "public-key"; id: string }[];
 }
 
-export function creationOptions(store: ChallengeStore, a: { rpId: string; origin: string; userId: string; login: string; displayName: string; existing: string[] }): CreationOptions {
-  const challenge = store.issue({ kind: "create", rpId: a.rpId, origin: a.origin, userId: a.userId });
+export function creationOptions(store: ChallengeStore, a: { rpId: string; origin: string; userId: string; login: string; displayName: string; existing: string[]; key?: string }): CreationOptions {
+  const challenge = store.issue({ kind: "create", rpId: a.rpId, origin: a.origin, userId: a.userId, ...(a.key ? { key: a.key } : {}) });
   return {
     challenge,
     rp: { id: a.rpId, name: "agent-007" },
@@ -161,8 +182,8 @@ export interface RequestOptions {
   allowCredentials: { type: "public-key"; id: string }[];
 }
 
-export function requestOptions(store: ChallengeStore, a: { rpId: string; origin: string; userId?: string; credentialIds: string[] }): RequestOptions {
-  const challenge = store.issue({ kind: "get", rpId: a.rpId, origin: a.origin, ...(a.userId ? { userId: a.userId } : {}) });
+export function requestOptions(store: ChallengeStore, a: { rpId: string; origin: string; userId?: string; credentialIds: string[]; key?: string }): RequestOptions {
+  const challenge = store.issue({ kind: "get", rpId: a.rpId, origin: a.origin, ...(a.userId ? { userId: a.userId } : {}), ...(a.key ? { key: a.key } : {}) });
   return { challenge, rpId: a.rpId, userVerification: "required", timeout: 120_000, allowCredentials: a.credentialIds.map((id) => ({ type: "public-key" as const, id })) };
 }
 
@@ -218,6 +239,8 @@ export function finishRegistration(store: ChallengeStore, resp: { id?: unknown; 
   if (!Buffer.isBuffer(authData)) throw new WebAuthnError("no authData");
   const { flags, signCount } = checkAuthData(authData, pending.rpId);
   if (!(flags & FLAG_AT)) throw new WebAuthnError("no credential data");
+  // AT set but the attested credential data is cut short: a client error (401), never a RangeError (500) (L5)
+  if (authData.length < 55) throw new WebAuthnError("credential data too short");
   const idLen = authData.readUInt16BE(53);
   if (idLen < 16 || idLen > 1023 || authData.length < 55 + idLen) throw new WebAuthnError("bad credential id length");
   const credId = authData.subarray(55, 55 + idLen);

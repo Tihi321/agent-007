@@ -204,7 +204,7 @@ export class UserAdmin {
     const secret = newTotpSecret();
     this.#pending.set(token, { inviteId: inv.id, userId, login: identity.login, totpSecret: secret, expiresAt: this.#now() + 30 * 60_000, ceremony });
     const out: { token: string; totp: { secret: string; uri: string }; passkey?: CreationOptions } = { token, totp: { secret, uri: otpauthUri(secret, identity.login) } };
-    if (ceremony) out.passkey = creationOptions(this.#s.auth.challenges, { ...ceremony, userId, login: identity.login, displayName: identity.login, existing: [] });
+    if (ceremony) out.passkey = creationOptions(this.#s.auth.challenges, { ...ceremony, userId, login: identity.login, displayName: identity.login, existing: [], key: `invite:${ctx.ip}` });
     return out;
   }
 
