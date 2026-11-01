@@ -92,7 +92,7 @@ test("I39 in the chat engine: proxy 503 provider_auth_required, a downed proxy a
       try {
         const eng = createOpenAiEngine({
           status,
-          endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: px.baseUrl, apiKey: FAKE_KEY, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, label: "Claude" } : { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" }),
+          endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: px.baseUrl, apiKey: FAKE_KEY, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, providerId: "claude", label: "Claude" } : { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" }),
         });
         const x = turn();
         const r = await eng.runTurn(x.t);
@@ -107,7 +107,7 @@ test("I39 in the chat engine: proxy 503 provider_auth_required, a downed proxy a
     }
     // a downed proxy (nothing listens)
     const port = await freePort();
-    const eng = createOpenAiEngine({ endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: FAKE_KEY, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, label: "Claude" } : { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" }) });
+    const eng = createOpenAiEngine({ endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: `http://127.0.0.1:${port}/v1`, apiKey: FAKE_KEY, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, providerId: "claude", label: "Claude" } : { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" }) });
     const x = turn();
     assert.equal((await eng.runTurn(x.t)).stopReason, "stop");
     assert.equal(x.text(), "local answer");
@@ -123,7 +123,7 @@ test("a Claude preset whose proxy login is an API key is never called; a bad req
   try {
     const status = new ProxyStatus();
     status.noteAuthMethod("claude", "api_key");
-    const ep = (id: string): ModelEndpoint | undefined => (id === "claude-sonnet" ? { baseUrl: px.baseUrl, apiKey: FAKE_KEY, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, label: "Claude" } : id === "strata" ? { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" } : undefined);
+    const ep = (id: string): ModelEndpoint | undefined => (id === "claude-sonnet" ? { baseUrl: px.baseUrl, apiKey: FAKE_KEY, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, providerId: "claude", label: "Claude" } : id === "strata" ? { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" } : undefined);
     const eng = createOpenAiEngine({ endpoint: ep, status });
     const x = turn();
     assert.equal((await eng.runTurn(x.t)).stopReason, "stop");
@@ -138,7 +138,7 @@ test("a Claude preset whose proxy login is an API key is never called; a bad req
     // 400 is a client bug: no fallback to the local model
     const bad = await startFakeOpenAi({ behavior: () => ({ type: "error", status: 400, body: { error: { code: "unsupported_parameter", message: "x", type: "y" } } }), modelId: "claude/sonnet" });
     try {
-      const e2 = createOpenAiEngine({ endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: bad.baseUrl, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, label: "Claude" } : ep(id)) });
+      const e2 = createOpenAiEngine({ endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: bad.baseUrl, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, providerId: "claude", label: "Claude" } : ep(id)) });
       const y = turn();
       const rr = await e2.runTurn(y.t);
       assert.equal(rr.stopReason, "error");
@@ -173,7 +173,7 @@ test("a whole chat through the gateway: a Claude bot with a Strata fallback; the
     engine: new ScriptedEngine(),
     realEngine: createOpenAiEngine({
       status: new ProxyStatus(),
-      endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: px.baseUrl, apiKey: FAKE_KEY, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, label: "Claude" } : id === "strata" ? { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" } : undefined),
+      endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: px.baseUrl, apiKey: FAKE_KEY, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, providerId: "claude", label: "Claude" } : id === "strata" ? { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" } : undefined),
     }),
   });
   try {
@@ -192,4 +192,47 @@ test("a whole chat through the gateway: a Claude bot with a Strata fallback; the
     await px.close();
     await strata.close();
   }
+});
+
+test("L7: the API-key refusal is keyed by the preset's provider id, not by 'claude' in the model id; a 503 asks the host to re-read the proxy health", async () => {
+  const strata = await startFakeOpenAi({ behavior: say("local answer"), modelId: "m" });
+  const px = await startFakeOpenAi({ behavior: say("proxy answer"), modelId: "anthropic/sonnet-4" });
+  try {
+    const status = new ProxyStatus();
+    status.noteAuthMethod("claude", "api_key");
+    // a Claude preset whose model id does not say "claude" is still refused
+    const claudeNoName = (id: string): ModelEndpoint | undefined => (id === "claude-sonnet" ? { baseUrl: px.baseUrl, modelId: "anthropic/sonnet-4", maxTokens: 512, viaProxy: true, providerId: "claude", label: "Claude" } : { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" });
+    const x = turn();
+    await createOpenAiEngine({ endpoint: claudeNoName, status }).runTurn(x.t);
+    assert.equal(px.requests.length, 0, "refused: no request reached the proxy");
+    assert.equal(x.text(), "local answer");
+    // a codex preset whose model id happens to contain "claude" is NOT refused by the Claude login state
+    const codexNamed = (id: string): ModelEndpoint | undefined => (id === "claude-sonnet" ? { baseUrl: px.baseUrl, modelId: "codex/claude-compatible", maxTokens: 512, viaProxy: true, providerId: "codex", label: "Codex" } : undefined);
+    const y = turn();
+    await createOpenAiEngine({ endpoint: codexNamed, status }).runTurn(y.t);
+    assert.equal(y.text(), "proxy answer");
+  } finally {
+    await px.close();
+  }
+  // a 503 from the proxy triggers an immediate health refresh (not only the 60 s poll)
+  const down = await startFakeOpenAi({ behavior: () => ({ type: "error", status: 503, body: { error: { code: "provider_auth_required", message: "login", type: "x" } } }), modelId: "claude/sonnet" });
+  try {
+    let refreshes = 0;
+    const eng = createOpenAiEngine({ status: new ProxyStatus(), onProxyTrouble: () => refreshes++, endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: down.baseUrl, modelId: "claude/sonnet", maxTokens: 512, viaProxy: true, providerId: "claude", label: "Claude" } : { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" }) });
+    await eng.runTurn(turn().t);
+    assert.equal(refreshes, 1);
+  } finally {
+    await down.close();
+    await strata.close();
+  }
+  // the refresher: one check at a time, at most one per gap
+  const { proxyRefresher } = await import("../../src/web/main.js");
+  let checks = 0;
+  const clock = { t: 0 };
+  const r = proxyRefresher(async () => void checks++, { minGapMs: 5000, now: () => clock.t });
+  await r.refresh();
+  assert.equal(r.refresh(), undefined, "inside the gap");
+  clock.t += 6000;
+  await r.refresh();
+  assert.equal(checks, 2);
 });

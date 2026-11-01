@@ -63,7 +63,7 @@ test("the entry point: arguments are parsed strictly, tailnet mode needs the ts.
     PRESETS,
   );
   assert.deepEqual(resolve("strata"), { baseUrl: "http://127.0.0.1:8080/v1", apiKey: "st-key", modelId: "strata", maxTokens: 4096, viaProxy: false, label: "strata" });
-  assert.deepEqual(resolve("claude-sonnet"), { baseUrl: "http://127.0.0.1:8787/v1", apiKey: "px-key", modelId: "claude/sonnet", maxTokens: 8192, viaProxy: true, label: "Claude Sonnet" });
+  assert.deepEqual(resolve("claude-sonnet"), { baseUrl: "http://127.0.0.1:8787/v1", apiKey: "px-key", modelId: "claude/sonnet", maxTokens: 8192, viaProxy: true, providerId: "claude", label: "Claude Sonnet" });
   assert.equal(resolve("nope"), undefined);
 });
 

@@ -77,7 +77,7 @@ export function endpointResolver(config: Pick<Config, "model">, secrets: Pick<Se
     if (!p) return undefined;
     if (p.kind === "acp") {
       if (!p.baseUrl) return undefined;
-      return { baseUrl: p.baseUrl, apiKey: secrets.proxyApiKey, modelId: p.modelId, maxTokens: p.maxTokens, viaProxy: true, label: p.label };
+      return { baseUrl: p.baseUrl, apiKey: secrets.proxyApiKey, modelId: p.modelId, maxTokens: p.maxTokens, viaProxy: true, providerId: p.providerId, label: p.label };
     }
     const runner = p.runner ? (config.model.runners as Record<string, { baseUrl: string } | undefined>)[p.runner] : undefined;
     if (!runner) return undefined;
@@ -101,6 +101,29 @@ async function clockSkew(fetchFn: typeof fetch = fetch): Promise<number | undefi
   } catch {
     return undefined;
   }
+}
+
+/**
+ * L7: re-reads the proxy health at once when a chat turn meets a login problem or a 503, not only on the 60 s poll, so a fixed login (or
+ * a switch to an API key, which must be refused) shows up on the next turn. At most one check runs at a time and at most one per `minGapMs`.
+ */
+export function proxyRefresher(check: () => Promise<void>, o: { minGapMs?: number; now?: () => number } = {}): { refresh(): Promise<void> | undefined } {
+  const gap = o.minGapMs ?? 5000;
+  const now = o.now ?? Date.now;
+  let last = -Infinity;
+  let running: Promise<void> | undefined;
+  return {
+    refresh() {
+      if (running || now() - last < gap) return undefined;
+      last = now();
+      running = check()
+        .catch(() => undefined)
+        .finally(() => {
+          running = undefined;
+        });
+      return running;
+    },
+  };
 }
 
 export interface RunningWeb {
@@ -135,7 +158,8 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
     await watchProxy();
     setInterval(() => void watchProxy(), 60_000).unref();
   }
-  const engine = createOpenAiEngine({ endpoint: endpointResolver(config, secrets, presets), status, log: (l) => out(redact(l)) });
+  const refresher = proxyRefresher(watchProxy);
+  const engine = createOpenAiEngine({ endpoint: endpointResolver(config, secrets, presets), status, log: (l) => out(redact(l)), ...(proxyPreset ? { onProxyTrouble: () => void refresher.refresh() } : {}) });
 
   // the kill switch flag is shared with the Telegram agent through the control folder
   const tsExe = cli.tailscale;

@@ -21,6 +21,8 @@ export interface ModelEndpoint {
   maxTokens: number;
   /** True for a preset reached through the proxy (I39 applies). */
   viaProxy: boolean;
+  /** The proxy provider of the preset (`claude`, `codex`, `antigravity`): the API-key refusal and /status are keyed by it, never by the model id (L7). */
+  providerId?: string | undefined;
   label: string;
 }
 
@@ -32,6 +34,8 @@ export interface OpenAiEngineOptions {
   maxToolRounds?: number;
   /** Called with a content-free line for the host log (never a prompt or a reply). */
   log?: (line: string) => void;
+  /** Called when the proxy answers with a login problem, a 503 or is down, so the host re-reads its health at once instead of waiting for the poll (L7). */
+  onProxyTrouble?: () => void;
 }
 
 interface Msg {
@@ -173,7 +177,7 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
       for (let i = 0; i < ids.length; i++) {
         const ep = o.endpoint(ids[i] as string);
         if (!ep) continue;
-        if (ep.viaProxy && o.status?.refused("claude") && /claude/.test(ep.modelId)) {
+        if (ep.viaProxy && ep.providerId !== undefined && o.status?.refused(ep.providerId)) {
           lastFailure = failureOf("refused");
           if (!said && i + 1 < ids.length) {
             t.emit({ type: "notice", text: NOTICE["refused"] as string });
@@ -183,7 +187,7 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
         }
         try {
           const r = await turnOn(t, ep);
-          if (ep.viaProxy) o.status?.noteSuccess("acp-" + (/claude/.test(ep.modelId) ? "claude" : "codex"));
+          if (ep.viaProxy && ep.providerId !== undefined) o.status?.noteSuccess(`acp-${ep.providerId}`);
           return r;
         } catch (e) {
           if (!(e instanceof Failed)) {
@@ -191,7 +195,14 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
             throw e;
           }
           lastFailure = e.failure;
-          if (ep.viaProxy && e.failure.kind !== "aborted") o.status?.noteFailure("acp-" + (/claude/.test(ep.modelId) ? "claude" : "codex"), e.failure);
+          if (ep.viaProxy && e.failure.kind !== "aborted" && ep.providerId !== undefined) o.status?.noteFailure(`acp-${ep.providerId}`, e.failure);
+          if (ep.viaProxy && (e.failure.kind === "auth_required" || e.failure.kind === "down" || e.failure.status === 503)) {
+            try {
+              o.onProxyTrouble?.();
+            } catch {
+              /* a refresh problem never changes the answer */
+            }
+          }
           o.log?.(`chat engine: ${ep.label}: ${e.failure.kind}`);
           if (e.failure.kind === "aborted" || t.signal.aborted) return { stopReason: "aborted", usage: { input: 0, output: 0 } };
           if (e.failure.fallback === "never") return { stopReason: "error", usage: { input: 0, output: 0 }, error: "The model could not process this request." };
