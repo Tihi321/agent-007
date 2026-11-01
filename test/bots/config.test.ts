@@ -127,6 +127,7 @@ test("a per-token-billed (API key) preset is not a kind, and no key reference ot
   const withPreset = (p: Record<string, unknown>) => withBots({ main: bot() }, { presets: [...baseSecurity().presets, p] });
   refused(withPreset({ ...ACP_CODEX, kind: "api-key" }), /presets\[\d\]\.kind: must be one of: local, acp/);
   refused(withPreset({ ...ACP_CODEX, kind: "openai" }), /presets\[\d\]\.kind/);
+  refused(withPreset({ ...ACP_CODEX, kind: "custom" }), /presets\[\d\]\.kind/); // AC8: custom providers live only in the web store
   refused(withPreset({ ...ACP_CODEX, apiKeyRef: "openaiKey" }), /presets\[\d\]\.apiKeyRef/);
   assert.equal(check(withPreset(ACP_CODEX)).ok, true);
 });
