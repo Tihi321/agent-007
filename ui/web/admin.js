@@ -2,6 +2,7 @@
 // screen: the audit holds lengths and hashes only.
 import { withStepUp } from "./account.js";
 import { clear, field, h, when } from "./dom.js";
+import { renderPresetChecklist } from "./models.js";
 
 export async function renderAdmin(ctx) {
   const out = h("div", { "aria-live": "polite" });
@@ -20,12 +21,13 @@ export async function renderAdmin(ctx) {
     const u = await ctx.api.call("/api/admin/users", {});
     clear(
       usersEl,
-      (u.ok ? u.data.users : []).map((x) =>
-        h(
+      (u.ok ? u.data.users : []).map((x) => {
+        const modelsHost = h("div", {});
+        return h(
           "li",
           { class: "card" },
           h("strong", {}, x.displayName), " ", h("span", { class: "muted" }, x.login), " ", h("span", { class: "badge" }, x.role), " ", h("span", { class: x.status === "active" ? "badge" : "badge badge-cloud" }, x.status),
-          h("p", { class: "muted small" }, `Bots ${x.caps.maxBots}, messages/day ${x.caps.maxChatsPerDay}, tokens/day ${x.caps.maxTokensPerDay}, models: ${x.caps.presets.join(", ") || "none"}`),
+          h("p", { class: "muted small" }, `Bots ${x.caps.maxBots}, messages/day ${x.caps.maxChatsPerDay}, tokens/day ${x.caps.maxTokensPerDay}, models: ${x.caps.presets === "all" ? "all" : x.caps.presets.join(", ") || "none"}`),
           x.role === "owner"
             ? null
             : h(
@@ -38,13 +40,18 @@ export async function renderAdmin(ctx) {
                   const n = ctx.prompt("Max bots", String(x.caps.maxBots));
                   if (n) act("/api/admin/users/caps", { id: x.id, caps: { ...x.caps, maxBots: Number(n) } }, "Limits changed. Their sessions were restarted.");
                 } }, "Change bot limit"),
+                ctx.role === "owner" ? h("button", { class: "btn btn-small", type: "button", onclick: async () => {
+                  // Keeps every other cap unchanged; only caps.presets is replaced (Caps.presets, max 128).
+                  clear(modelsHost, await renderPresetChecklist(ctx, x, (ids) => act("/api/admin/users/caps", { id: x.id, caps: { ...x.caps, presets: ids } }, "Models changed. Their sessions were restarted.")));
+                } }, "Models…") : null,
                 ctx.role === "owner" ? h("button", { class: "btn btn-small btn-danger", type: "button", onclick: () => {
                   const c = ctx.prompt(`Type ${x.login} to delete this user and all their data`, "");
                   if (c) act("/api/admin/users/delete", { id: x.id, confirm: c }, "Deleted.");
                 } }, "Delete") : null,
               ),
-        ),
-      ),
+          modelsHost,
+        );
+      }),
     );
     const i = await ctx.api.call("/api/admin/invites", {});
     clear(invitesEl, (i.ok ? i.data.invites : []).map((x) => h("li", { class: "row" }, h("span", {}, `${x.role} · ${x.state}${x.pin ? ` · ${x.pin}` : ""} · expires ${when(x.expiresAt)}`), x.state === "pending" ? h("button", { class: "btn btn-small", type: "button", onclick: () => act("/api/admin/invites/revoke", { id: x.id }, "Revoked.") }, "Revoke") : null)));
@@ -106,5 +113,5 @@ export async function renderAdmin(ctx) {
         if (r.ok) ctx.signedOut();
       } }, "Lockdown: sign everyone out")
     : null;
-  return h("section", { "aria-labelledby": "admin-title" }, h("h1", { id: "admin-title" }, "Admin"), out, h("h2", {}, "People"), usersEl, invite, h("h2", {}, "Invitations"), invitesEl, ctx.role === "owner" ? h("h2", {}, "Paid routes (off until you set a daily and a monthly cap)") : null, ctx.role === "owner" ? paidEl : null, ctx.role === "owner" ? h("h2", {}, "Audit (no message text)") : null, ctx.role === "owner" ? auditEl : null, lock);
+  return h("section", { "aria-labelledby": "admin-title" }, h("h1", { id: "admin-title" }, "Admin"), ctx.role === "owner" ? h("p", {}, h("a", { class: "btn", href: "#/admin/models" }, "Models: fetch and add model presets")) : null, out, h("h2", {}, "People"), usersEl, invite, h("h2", {}, "Invitations"), invitesEl, ctx.role === "owner" ? h("h2", {}, "Paid routes (off until you set a daily and a monthly cap)") : null, ctx.role === "owner" ? paidEl : null, ctx.role === "owner" ? h("h2", {}, "Audit (no message text)") : null, ctx.role === "owner" ? auditEl : null, lock);
 }
