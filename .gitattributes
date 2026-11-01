@@ -1,0 +1,24 @@
+# Force LF for text sources so tests that compare file text (snapshots, script text, UI copies) pass under core.autocrlf=true.
+* text=auto eol=lf
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.cjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.ps1 text eol=lf
+*.psm1 text eol=lf
+*.html text eol=lf
+*.css text eol=lf
+*.svg text eol=lf
+*.snap text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+.npmrc text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+*.png binary
+*.jpg binary
+*.ico binary
+*.sqlite binary

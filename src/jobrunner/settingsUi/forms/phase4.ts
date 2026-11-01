@@ -12,6 +12,8 @@
 import { SECURITY_SCHEMA } from "../../../settings/schema.js";
 import type { Schema } from "../../../settings/jsonschema.js";
 import type { FormDescriptor } from "./registry.js";
+import { BRAIN_CHOICES, applyBrain } from "../../../bots/brain.js";
+import { botFromDoc } from "../../../bots/schema.js";
 
 export const TERMS_ACK_TEXT =
   "I understand that using Claude or Antigravity through the proxy may break that vendor's terms, that the account could be blocked or suspended, and that this is my own decision. This is saved in the audit log.";
@@ -22,10 +24,20 @@ function form(id: string, title: string, sections: string[], extra: Partial<Form
   return { id, title, target: "security", section: sections, schema: { type: "object", properties, additionalProperties: false }, ...extra };
 }
 
+/** MA3: bot templates for the bots form, one per default brain (Claude primary, Strata fallback). Read-only JSON the user pastes. */
+function brainTemplates(): { label: string; target: string; json: string }[] {
+  return BRAIN_CHOICES.map((c) => {
+    const base = botFromDoc({ description: "A bot", telegramTokenRef: "CHANGE-ME", tools: ["tool_search", "ask_user", "system_facts", "list_dir", "read_file", "search_files"] });
+    const { bot } = applyBrain(base, c);
+    return { label: `New bot with ${c === "sonnet" ? "Sonnet" : "Opus"} as the default brain and Strata as the fallback (cloud: it reads only its cloud-safe folders)`, target: "bots.<id>", json: JSON.stringify({ route: bot.route, tools: bot.tools, cloudSafeRoots: [] }, null, 2) };
+  });
+}
+
 export function phase4Forms(): FormDescriptor[] {
   return [
     form("bots", "Bots", ["bots"], {
       group: "Bots",
+      templates: brainTemplates(),
       description: "Each bot has its own Telegram token, memory, model route, tool allowlist, folders and edges. A bot with no edge cannot ask other bots. The egress flag on an edge allows what the asked bot reads to leave through a cloud model; it exists only here.",
       warnings: [
         "A new bot needs its own token: run deploy\\new-secrets.ps1 -Bots <id> and create the bot with BotFather first.",

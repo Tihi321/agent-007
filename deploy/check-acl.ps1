@@ -407,6 +407,33 @@ if (Test-PathExists $chainsJson 'Leaf') {
     Write-Host "SKIP       $chainsJson does not exist (no chain store yet)"
 }
 
+# ---- 5b3. Milestone 2 (S28): the web gateway's audit log and its auth stores, in the agent data root (I52, I53, I54). -----
+# web-audit is append-only like bus-audit. web\ holds users.json, invites.json, credentials.json, sessions.json and web.key: the agent reads and writes them
+# (the gateway runs as the agent user), so the check is that no broad group (Users, Everyone, Authenticated Users) can read them.
+$webAuditDir = Join-WinPath $layout.DataDir 'web-audit'
+if (Test-PathExists $webAuditDir 'Container') {
+    $wacl = Read-PathAcl $webAuditDir
+    if ($null -ne $wacl) {
+        $wv = Get-AgentView $wacl
+        Write-View 'WEB' $webAuditDir $wv
+        Test-AuditFolder -Dir $webAuditDir -Label 'web audit' -Acl $wacl
+    }
+} else {
+    Write-Host "SKIP       $webAuditDir does not exist (no web audit yet)"
+}
+$webDir = Join-WinPath $layout.DataDir 'web'
+foreach ($webName in @('', 'users.json', 'invites.json', 'credentials.json', 'sessions.json', 'web.key')) {
+    $webPath = if ($webName -eq '') { $webDir } else { Join-WinPath $webDir $webName }
+    $webType = if ($webName -eq '') { 'Container' } else { 'Leaf' }
+    if (-not (Test-PathExists $webPath $webType)) { Write-Host "SKIP       $webPath does not exist"; continue }
+    $wfacl = Read-PathAcl $webPath
+    if ($null -eq $wfacl) { continue }
+    $wfv = Get-AgentView $wfacl
+    Write-View 'WEB' $webPath $wfv
+    if ($wfv.BroadAces.Count -gt 0) { Add-Violation $webPath "a broad group can access the web gateway store (credentials, sessions and the key must be agent-only): $($wfv.BroadAces -join ' ')" }
+    if ($wfv.DenyRead) { Add-Violation $webPath 'a Deny Read applies to the agent user (the gateway could not load its stores)' }
+}
+
 # ---- 5c. Phase 4: the shared folder (S20.3, I43). The agent reads FACTS.md and the shared skills; it never writes them. -----
 $sharedDir = Join-WinPath $layout.ProgramDataDir 'shared'
 if (Test-PathExists $sharedDir 'Container') {

@@ -206,6 +206,7 @@ async function securityForm(form, reload) {
   const ack = form.ack ? h("input", { type: "checkbox", id: "ack-box" }) : null;
   const panel = h("div", {});
   root.append(rf.element);
+  for (const t of form.templates || []) root.append(h("details", { class: "template" }, h("summary", {}, "Template: " + t.label), h("p", { class: "help" }, "Copy into a new entry of " + t.target + ". Set the context window and max tokens yourself; the Terms form must be ticked for Claude."), h("pre", {}, t.json)));
   if (ack) root.append(h("div", { class: "field" }, h("label", { class: "check", for: "ack-box" }, ack, h("span", {}, form.ack.text))));
   root.append(messages, panel, h("div", { class: "actions sticky-actions" }, save, reset));
   reset.addEventListener("click", reload);

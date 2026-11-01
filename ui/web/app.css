@@ -1,0 +1,37 @@
+/* agent-007 web UI (S35). Mobile first: one column; two panes from 900px. 44 px touch targets come from tokens.css. */
+.topbar { display: flex; align-items: center; gap: 16px; padding: 8px 16px; background: var(--panel); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.brand { font-weight: 700; }
+.nav { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.navlink { display: inline-flex; align-items: center; min-height: 44px; padding: 0 12px; color: var(--text); text-decoration: none; border-radius: var(--radius); }
+.navlink:hover { background: var(--accent-soft); }
+main { padding: 16px; max-width: 1100px; margin: 0 auto; }
+.narrow { max-width: 480px; margin: 24px auto; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; justify-content: space-between; }
+.cards { list-style: none; padding: 0; display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); }
+.plainlist { list-style: none; padding: 0; }
+.avatar { display: inline-flex; width: 44px; height: 44px; border-radius: 50%; align-items: center; justify-content: center; font-weight: 700; background: var(--accent-soft); color: var(--accent); }
+.codes, .audit { background: var(--panel-2); padding: 12px; border-radius: var(--radius); overflow: auto; white-space: pre-wrap; max-height: 320px; }
+.secret { word-break: break-all; }
+.chip { display: inline-block; margin: 2px 4px 2px 0; padding: 2px 8px; border-radius: 999px; font-size: 0.78rem; background: var(--panel-2); border: 1px solid var(--border); }
+.chip-ok { color: var(--ok); } .chip-error, .chip-denied { color: var(--danger); } .chip-running { color: var(--muted); }
+.chat { display: grid; gap: 12px; grid-template-columns: 1fr; }
+.sidebar { display: flex; flex-direction: column; gap: 8px; }
+.threads { list-style: none; padding: 0; margin: 0; max-height: 40vh; overflow: auto; }
+.thread { border-bottom: 1px solid var(--border); padding: 4px 0; }
+.thread.current { background: var(--accent-soft); }
+.thread-open { width: 100%; text-align: left; display: flex; flex-direction: column; align-items: flex-start; }
+.pane { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.log { min-height: 240px; max-height: 55vh; overflow: auto; padding: 8px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); }
+.msg { margin: 8px 0; padding: 8px 12px; border-radius: var(--radius); max-width: 100%; overflow-wrap: anywhere; }
+.msg-user { background: var(--accent-soft); }
+.msg-assistant { background: var(--panel-2); }
+.msg p { margin: 4px 0; } .plain { white-space: pre-wrap; }
+.msg pre { overflow: auto; background: var(--bg); padding: 8px; border-radius: 6px; }
+.composer { display: flex; flex-direction: column; gap: 8px; }
+.approval { border-color: var(--warn); }
+progress { width: 160px; height: 14px; }
+@media (min-width: 900px) {
+  .chat { grid-template-columns: 280px 1fr; }
+  .threads { max-height: 60vh; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; animation: none !important; transition: none !important; } }

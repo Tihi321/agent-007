@@ -28,6 +28,8 @@ export type ProxyErrorKind =
   | "limiter_busy"
   /** The caller aborted (`/stop`). Never retried, never a fallback. */
   | "aborted"
+  /** MA2: this host refuses the provider without calling it (the proxy's Claude login is a per-token API key). Falls back like a missing login. */
+  | "refused"
   /** Anything else (a 5xx with no known code, an unreadable message). */
   | "unknown";
 
@@ -83,6 +85,7 @@ const TABLE: Record<ProxyErrorKind, Row> = {
   down: { retry: NO_RETRY, fallback: "after_retries", needsLogin: true, message: "the proxy is not reachable (not running, or the main user is logged off)" },
   limiter_busy: { retry: NO_RETRY, fallback: "never", message: "too many calls waiting for the proxy (this host's limiter)" },
   aborted: { retry: NO_RETRY, fallback: "never", message: "the request was stopped" },
+  refused: { retry: NO_RETRY, fallback: "after_retries", message: "this provider is refused: the proxy login is an API key, not the subscription (needs attention)" },
   unknown: { retry: { attempts: 1, delaySec: 5 }, fallback: "after_retries", message: "the proxy returned an unexpected error" },
 };
 
@@ -215,6 +218,7 @@ export function toFallbackFailure(f: ProxyFailure): { kind: FallbackFailureKind;
     down: "connection_refused",
     limiter_busy: undefined,
     aborted: undefined,
+    refused: "auth_required",
     unknown: "other",
   };
   const kind = kinds[f.kind];

@@ -107,6 +107,9 @@ Set-OurFolder -Path $layout.DataDir -Label "agent $AgentUser F (owner)" -SetAcl 
 # bus-audit sits inside the agent data root, so it is set after it. bus\chains.json is a state file the agent rewrites; it keeps the data root's ACL (check-acl.ps1 checks it).
 $busAuditDir = Join-WinPath $layout.DataDir 'bus-audit'
 Set-OurFolder -Path $busAuditDir -Label "agent $AgentUser create files + append only" -SetAcl { Set-AppendOnlyDirAcl -Path $busAuditDir -AgentUser $AgentUser }
+# web-audit (Milestone 2, I54): the web gateway's audit log, same create-files + append-only pattern as bus-audit.
+$webAuditDir = Join-WinPath $layout.DataDir 'web-audit'
+Set-OurFolder -Path $webAuditDir -Label "agent $AgentUser create files + append only" -SetAcl { Set-AppendOnlyDirAcl -Path $webAuditDir -AgentUser $AgentUser }
 # <programData>\settings\audit (U48): same pattern, only when the settings folder exists (Phase 3). settings\ itself is not changed here.
 $settingsAuditDir = Join-WinPath $layout.ProgramDataDir 'settings', 'audit'
 if (Test-Path -LiteralPath $settingsAuditDir -PathType Container) {

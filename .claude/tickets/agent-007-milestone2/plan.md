@@ -1,6 +1,6 @@
 # Milestone 2: remote multi-user web access over Tailscale
 
-Status: PLAN ONLY (revised 2026-11-01). Nothing is built, installed or started. Starts after Milestone 1's offline gates and its non-Telegram live items; the deferred Telegram live items now run LAST, after M2 (section 15). Research: `research-acp-proxy.md`. Parent plan: `.claude/tickets/agent-007-pi-durable-mvp/plan.md` (IDs used there: D1-D12, I1-I46, UI-1-UI-32, S1-S27, U1-U59, G0-G4; this file continues from I47, UI-33, S28, U60, G5).
+Status: IMPLEMENTED OFFLINE up to gate G5 (see section 16). NOT done: MA1 (proxy repo), all user steps, live gates G6a/G6b. The plan text below is unchanged. Originally: PLAN ONLY (revised 2026-11-01). Starts after Milestone 1's offline gates and its non-Telegram live items; the deferred Telegram live items now run LAST, after M2 (section 15). Research: `research-acp-proxy.md`. Parent plan: `.claude/tickets/agent-007-pi-durable-mvp/plan.md` (IDs used there: D1-D12, I1-I46, UI-1-UI-32, S1-S27, U1-U59, G0-G4; this file continues from I47, UI-33, S28, U60, G5).
 
 ## 0. Scope statement (one line)
 
@@ -115,7 +115,7 @@ Screens: sign-in / claim / accept-invite; Bots (list + editor); Chat (thread lis
 | T11 | Brute force | Rate limit, lockout, passkeys have no password to brute force |
 | T12 | Privacy: owner reading users' chats, or logs leaking bodies | Audit has hashes only; owner has no chat-read UI (UI-39) |
 | T13 | Gateway compromise reaches owner secrets | Gateway runs with the same Windows user (v1 residual risk, as UI-28); owner secrets are never loaded into user bot contexts; documented; option of a separate Windows user left to UI-36 |
-| T14 | Cost and egress through cloud presets | Presets only by owner caps; owner approval for cloud on non-owner (UI-38) |
+| T14 | Cost and egress through cloud presets | Presets only by owner caps; owner approval for cloud on non-owner (UI-38); every turn re-checks the route and tools against the CURRENT caps, terms and paid grants (existing bots included); paid routes off per bot until the owner sets a daily and monthly cap (I58, S38) |
 
 ## 9. New invariants (continue after I46)
 
@@ -130,6 +130,7 @@ Screens: sign-in / claim / accept-invite; Bots (list + editor); Chat (thread lis
 - **I55** Failing closed: any missing, corrupt or unreadable auth input disables the gateway rather than opening it.
 - **I56** Owner-only actions (invite, caps, delete user, lockdown) require an owner role and a fresh passkey or TOTP confirmation (under 5 minutes old).
 - **I57** The web UI follows I25a (no framework, strict CSP, no innerHTML), and the new gateway adds no dependency other than the WebAuthn verifier if UI-34 says so.
+- **I58** (replaces D12/I39's "a paid API key is never a brain or fallback", user 2026-11-01, section 0a item 6) A paid route is never used unless the owner enabled it for that bot and its cap has headroom; usage is audited. A paid preset is marked `billing: "paid"`; only web bots can be granted one (an owner Telegram bot listing it is refused by the loader, since no cap exists there yet). The route of every turn is computed from the current caps, terms and grants, never from what the bot was saved under.
 
 ## 9a. Anthropic brain through the ACP proxy (steps MA1-MA4, done BEFORE S28)
 
@@ -157,6 +158,7 @@ User steps (nothing run by the agent): **U67** in the proxy app: enable Claude, 
 | S34 | Chat API: threads, messages, SSE streaming with resume, stop, regenerate, approval cards via web for user-scoped approvals, usage and quota | Streaming works against the fake harness; reload restores thread; quota blocks with a clear message; approval token bound to userId | SSE tests, approval-token tests, quota tests |
 | S35 | Web UI `ui/web/`: sign-in/claim/invite, Bots list+editor, Chat, Account, Admin; mobile layout; shared tokens in `ui/common/`; copy step | Screens render against a fake gateway; keyboard and screen-reader basics; Lighthouse-style a11y checklist done by hand | DOM tests (jsdom-free, string assertions as in S18), CSP grep, size budget |
 | S36 | Hardening and review: security review pass over the diff, red-team script of T1-T14 against a local fake tailnet harness, privacy export and delete, docs `deploy/web/README` with the user steps | All T-rows have a passing test or a recorded accepted residual risk | Red-team suite; `npm test`, `check:adapter` stay green |
+| S38 | Paid-route spending caps (section 0a item 6, I58): `billing: "paid"` on a preset; a bot chain of main, cloud fallback, local fallback; every paid route OFF per bot until the OWNER enables it (step-up) with a required per-day and per-month token cap; a per-bot usage ledger; hard stop at the cap (turn refused, or the chain falls back with one notice; the engine clamps `max_tokens` to the headroom and ends the answer when it is used up); audited (`paid_grant`, `paid_usage`, `paid_cap_hit`); shown in the bot editor, the bot cards, the chat usage line and an owner Admin section. Also M1: each turn re-checks route and tools against the CURRENT caps and terms. | A paid route never answers without an owner grant with headroom; lowering caps changes the next turn of existing bots | `test/web/paid.test.ts`, `test/web/redteam.test.ts` T14, `test/web/engine.test.ts` (M2 budget), `test/bots/config.test.ts` (I58 loader) |
 | S37 | Live acceptance (user steps), in this order: L1 web UI on the PC over loopback, L2 Tailscale, L3 Telegram | Gates G6a, G6b and section 15 | U60+ checklist, reordered below |
 
 U60 to U66 (user steps, nothing run by the agent), now in phases. **L1, loopback only, no Tailscale yet:** claim the owner account on the PC at `http://127.0.0.1:47009/claim`; create a bot, pick Sonnet or Opus in the editor, chat, see history after reload (needs MA1 to MA3 and U67 to U70). **L2, Tailscale, after L1 passes:** install Tailscale and sign in; enable MagicDNS and HTTPS certs in the admin console; paste the ACL snippet; run `tailscale-serve.ps1` (dry run, then real) [GO]; invite a second person or a second own device; test from a phone. **L3, Telegram:** section 15.
@@ -219,3 +221,62 @@ Live order: **L1 local web UI, then L2 Tailscale (G6 tailnet checks), then L3 Te
 | G6 item (9): owner Telegram stays responsive while a guest chats | G6 | |
 
 Not deferred: P0.1 (closed by decision, Node via fnm), the live S27 eval on Strata, U52/U56/U58 proxy checks (needed for MA2 to MA4), the `bus-audit` ACL grant. The Telegram token setup (`deploy\new-secrets.ps1`) can wait until L3.
+
+## 16. Implementation status (worker run, 2026-11-01, branch agent-007-milestone2)
+
+Scope of this run: MA2, MA3, MA4 (offline harness), S28 to S36, up to the offline gate G5. NOT in scope and NOT done: MA1 (lives in `C:\projects\Personal\api-acp-proxy`, not touched), S37 and every U step, live gates G6a/G6b, Tailscale commands, Telegram. Nothing paid was called; no server was left running; every test uses fakes.
+
+### Checklist
+
+| Step | Result | Commit | Evidence |
+|---|---|---|---|
+| MA2 | DONE (offline) | bcde31a | `test/proxy/ma2.test.ts` (5 tests): healthz `auth_method` parsed; setup check reports it; Claude preset refused (no proxy call, falls back) on `api_key`; older proxy = warning only; `claude-sonnet`/`claude-opus` templates in the Models form and `config.example.json`. |
+| MA3 | DONE (offline) | 8ae734b | `test/bots/brain.test.ts` (5 tests): `src/bots/brain.ts` route builder, shell/dispatch_job stripped on a cloud bot, loader refuses them without relax, proxy 503 and a downed proxy fall back to Strata once with one notice, cloud badge + egress note, bots-form templates. |
+| MA4 | DONE offline; real run NOT DONE (user steps U67 to U70) | a83fe92 | `test/proxy-eval.test.ts` (4 tests): `--proxy-port` on the routing, multi-bot, settings and bake-off scripts, proxy pre-check; `claude-sonnet-eval-results.md` says the real run is pending. |
+| S28 | DONE | 157bb24 | `test/web/foundations.test.ts` (7): schemas, fuzz, corrupt file = loader error, atomic write, I52/I53/I54, ACL script rows (`check-acl.ps1`, `grant-folder-acls.ps1`). |
+| S29 | DONE | 76ab190 | `test/web/gateway.test.ts` (12): headers on every response, Host, CSRF, origin, rate limit, lockout (5 then 15 min, doubling, 24 h cap), SSE slots, serve-status matrix (Funnel, 47008, 47007), fail-closed start, no innerHTML/eval. |
+| S30 | DONE | 9917b5b | `test/web/tailscale.test.ts` (7): I49 matrix, whois parsing, version pin, `deploy/web/tailscale-serve.ps1` dry run and `-Apply`/`-Remove` against a fake `tailscale.cmd` shim. |
+| S31 | DONE | 465a41a | `test/web/auth.test.ts` (10): TOTP RFC vectors, WebAuthn with a software authenticator (every failure mode), claim (loopback only, 10 min, single use, second claim refused, reset), login matrix, lockout + owner told, sessions (idle 8 h, absolute 7 d, hashed ids, rotation), cookie flags over HTTP, CLI. |
+| S32 | DONE | 430ca51 | `test/web/users.test.ts` (9): invites single use / expiry / pin / replay / parallel finish, role matrix, disable kills sessions, delete with typed confirmation, 30-day retention, step-up, IDOR. |
+| S33 | DONE | a442e01 | `test/web/runtime.test.ts` (9): ceiling, namespacing, registry enumeration (I50), `UserFs` escapes incl. a junction, cross-user isolation, SSRF guard, scheduler fairness (I51). |
+| S34 | DONE | 22b7806 | `test/web/chat.test.ts` (10) + `test/web/engine.test.ts` (5): threads, SSE + resume, stop, regenerate, approval tokens bound to the userId, quotas, IDOR, I39 fallback in the engine. |
+| S35 | DONE (no real browser) | 3654858 | `test/web/ui.test.ts` (6): static CSP/no-innerHTML/size rules, safe Markdown, a full journey (claim, bot, chat, reload, sign out) in a fake DOM against the real gateway, label/landmark checks. |
+| S36 | DONE, with one medium residual (see G5) | see git log | `test/web/redteam.test.ts` (15) for T1 to T14 against a fake tailnet, `test/web/ops.test.ts` (4), `security-review.md`, `deploy/web/README.md`. |
+| S37 | NOT DONE: live acceptance is user steps (U60 to U70) | - | - |
+| MA1 | NOT DONE: other repo, not touched | - | - |
+
+### Verification (G5)
+
+- Build: `npm run build` finished with 0 errors (`tsc -p .` then the UI copy).
+- Full suite `npm test`: 1568 tests, 1558 pass, 9 fail. The 9 failures are exactly the ones that fail on the untouched branch start (baseline 1460 tests, 1450 pass, 9 fail; see deviation 11), so the Milestone 1 count did not drop (+108 tests). The web suite alone (`dist/test/web`) is 94 tests, all passing, including the cross-user isolation tests, the I47 to I57 tests and the red-team suite.
+- `npm run check:adapter`: PASS (adapter boundary and ACP boundary).
+- Scripts: `deploy/web/tailscale-serve.ps1` dry run prints and changes nothing (also tested with a fake `tailscale.cmd`); `check-acl.ps1` and `grant-folder-acls.ps1` rows are covered by script-text tests only (not run elevated).
+- Security review (`security-review.md`): no open HIGH. Four findings fixed (F1 session/identity binding was HIGH, F2 to F4 MEDIUM). Residual MEDIUM risks R1 (hand-written WebAuthn verifier), R2 (same Windows user as the agent) and R8 (owner priority not enforced across processes): **ACCEPTED by the user 2026-11-01**.
+- G5 RESULT: every mechanical criterion passes; R1, R2 and R8 were ACCEPTED by the user on 2026-11-01, so "no open high or medium" holds.
+
+### Checker findings fixed (2026-11-01, after G5)
+
+M1 per-turn route/tools re-check against current caps and terms; M2 paid-route caps (S38, I58); L1 `__proto__`-safe admin lookups; L2 lockout notices to the owner through the agent (control folder `owner-notices`); L3 disable, kill switch and lockdown stop running turns; L4 passkey step-up in the UI; L5 short WebAuthn authData is a 401 and a per-key challenge cap; L6 an open invite admits nobody until its code is presented (then pinned to that login); L7 proxy refusal keyed by provider id and a health re-read on 503; L8 the gateway keeps only the model keys (no Telegram token); L9 `.gitattributes` forces LF. Each has a test that fails before the fix. Details: `security-review.md`, section "Checker findings".
+- UNTESTED (needs the real thing): a real browser (layout, contrast, passkey prompts), a real Tailscale serve/whois, the real proxy and Claude login, Strata under load, the elevated ACL scripts, the Telegram kill-switch path end to end.
+
+### Deviations from the plan text, and why
+
+1. MA2: preset templates are shown as copyable JSON under the Models form (and in `config.example.json`), not as a button that fills the form; the generic form renderer has no template action and I did not extend it. A new proxy failure kind `refused` ("needs attention") was added so the refusal flows through the existing fallback code.
+2. MA3: the owner settings UI "bot editor" is the generic Bots form; the default-brain logic is `src/bots/brain.ts` plus two read-only bot templates in that form. The per-bot Sonnet/Opus choice with badge and egress note is in the web editor (S35).
+3. S28: authenticator secrets are encrypted with AES-256-GCM under `web\web.key` (a 32-byte file in the agent data root, ACL row added), not DPAPI (no native module).
+4. `check-acl.ps1` has the rows for `web-audit` and the `web\` files; it was not run elevated here (UNTESTED live).
+5. S31 (UI-34): passkeys are verified by a small in-repo ES256 verifier (`webauthn.ts`) instead of adding `@simplewebauthn/server`. Reason: I57 (no dependency) and no installs. Recorded as residual R1 in the review.
+6. S33: user bots register in `UserBotRegistry` (`registerUserBot`), not in `BotManager`, because BotManager is built around a Telegram token per bot.
+7. S34 (UI-35): the gateway is its own process (`npm run web`), and web chat uses an OpenAI-compatible streaming engine against Strata / the proxy instead of the Pi Harness. Consequences: no durable resume of a half-written web answer; owner priority (I51) is enforced inside the web process only (residual R8). The kill switch is coupled through the flag file.
+8. S34: only the `write_file` tool asks first. The scheduler's web class (1.5) is real inside the web scheduler; there is no half class in the shared gate.
+9. S35: the shared `ui/common/` (tokens.css, dom.js) is used by the web UI; the settings UI was not refactored onto it (it keeps its own copies) to avoid touching a working owner UI. The "Lighthouse-style a11y checklist by hand" was replaced by automated structural checks (labels, landmarks, aria-live, 44 px CSS); a real-browser pass is a user step.
+10. Fixes found while testing, beyond the plan text: sessions are bound to the Tailscale identity (F1); `GET /api/me` for CSRF recovery (F2); a body read deadline (F4); kill-switch coupling (F3). See `security-review.md`.
+11. Baseline: before this run `npm test` already had 9 failing tests (line endings in two snapshot and script-text tests and the PowerShell installer tests under this checkout); they are unchanged and not caused by this work. `phase2-e2e` and two jobrunner tests are load-sensitive: they failed or hung once on this heavily loaded machine and pass alone.
+
+### Decisions UI-33 to UI-48 (the plan's proposed option unless noted)
+
+UI-33: own tailnet members only; `tag:agent007-host` + `group:agent007-users` (printed by the script, never applied). UI-34: passkeys + password/TOTP fallback; no dependency (deviation 5); on the PC the owner signs in at `http://localhost:47009` (password + TOTP, or a passkey made at that address). UI-35: proposed agent process; DEVIATED to a separate process (deviation 7). UI-36: one Windows user (R2). UI-37: `admin` role exists (invite users, disable, caps not above their own). UI-38: new-user default caps = local presets only, 3 bots, jobs 0; a Claude preset only by explicit owner cap. UI-39: the owner cannot read chats. UI-40: users on Strata, one web turn at a time globally. UI-41: no web tools for user bots (the SSRF guard exists for later). UI-42: preset avatar gallery. UI-43: default `<host>.<tailnet>.ts.net`. UI-44: archive 30 days then delete. UI-45: Sonnet default, Opus per bot. UI-46: MA1 not done here (other repo); agent-007 handles both an updated and an older proxy. UI-47: shell only on a separate local-only bot; a Claude-primary bot gets no shell/dispatch_job unless relaxed. UI-48: Codex stays an allowed non-default preset (no change).
+
+### Extra ideas, not built
+
+Independent review of `webauthn.ts`; a global SSE cap; a gate lease over IPC so owner priority holds across processes; a separate Windows user for the gateway; a per-user usage graph; a QR code for the authenticator key (needs a generator); group chats and bot sharing (out of scope per section 1).

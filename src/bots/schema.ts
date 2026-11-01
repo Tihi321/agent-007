@@ -118,6 +118,17 @@ export interface PresetConfig {
   maxTokens: number;
   privacy: Privacy;
   autoFallback: boolean;
+  /**
+   * M2: `paid` marks a route that is billed per use (DeepSeek API, Anthropic API credits, Gemini through the proxy). A paid preset is never
+   * used unless the owner enabled it for that bot with a daily and a monthly cap that still has headroom (I58); only web bots have that
+   * switch in this milestone, so an owner Telegram bot cannot list one. Absent or `subscription`: not billed per use.
+   */
+  billing?: "subscription" | "paid";
+}
+
+/** M2: is this preset billed per use? */
+export function isPaidPreset(p: Pick<PresetConfig, "billing">): boolean {
+  return p.billing === "paid";
 }
 
 export interface BotBusLimits {
@@ -201,6 +212,9 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
+/** The loaded acknowledgments, read only (the web gateway reads them through this, so only this file names the key). */
+export const termsOf = (r: Pick<ResolvedBots, "termsAccepted">): TermsAccepted => r.termsAccepted;
+
 export function isBotId(id: string): boolean {
   return BOT_ID_PATTERN.test(id);
 }
@@ -222,6 +236,7 @@ export function presetFromDoc(p: Obj): PresetConfig {
   if (typeof p["baseUrl"] === "string") out.baseUrl = p["baseUrl"];
   if (typeof p["providerId"] === "string") out.providerId = p["providerId"] as AcpProvider;
   if (typeof p["apiKeyRef"] === "string") out.apiKeyRef = p["apiKeyRef"];
+  if (p["billing"] === "paid" || p["billing"] === "subscription") out.billing = p["billing"];
   return out;
 }
 
@@ -295,10 +310,12 @@ export function parseBots(security: Readonly<Obj> | undefined, ctx: BotsParseCon
   };
   const botsDoc = doc["bots"];
   if (!isObj(botsDoc)) {
+    // N1: no `bots` key skips validateBotsDoc, so the Telegram main is kept off paid routes here (I58)
+    const free = presets.filter((p) => !isPaidPreset(p)).map((p) => p.id);
     const main: BotConfig = {
       description: "The main agent",
       telegramTokenRef: MAIN_BOT_ID,
-      route: { primary: ctx.defaultPreset, allowed: presets.map((p) => p.id), fallback: [], onAuthRequired: "fallback" },
+      route: { primary: free.includes(ctx.defaultPreset) ? ctx.defaultPreset : (free[0] ?? ctx.defaultPreset), allowed: free, fallback: [], onAuthRequired: "fallback" },
       tools: [...MAIN_DEFAULT_TOOLS],
       readRoots: ctx.folderAllow.map((f) => ({ ...f })),
       cloudSafeRoots: [],
@@ -391,6 +408,9 @@ export function validateBotsDoc(doc: Readonly<Obj>, ctx: BotsCheckContext): Bots
   presetDocs.forEach((_raw, i) => {
     const p = presets[i] as PresetConfig;
     const at = `presets[${i}]`;
+    const billing = (presetDocs[i] as Obj | undefined)?.["billing"];
+    if (billing !== undefined && billing !== "paid" && billing !== "subscription") issues.push(`${at}.billing: must be "paid" or "subscription"`);
+    if (p.billing === "paid" && p.kind !== "acp") issues.push(`${at}.billing: only a preset reached through the proxy can be a paid route`);
     if (p.kind === "acp") {
       if (p.baseUrl === undefined) issues.push(`${at}.baseUrl: an acp preset needs the proxy URL (http://127.0.0.1:<port>/v1)`);
       else if (!isLoopbackHttp(p.baseUrl)) issues.push(`${at}.baseUrl: must be an http URL on 127.0.0.1 or localhost: ${p.baseUrl}`);
@@ -440,6 +460,7 @@ export function validateBotsDoc(doc: Readonly<Obj>, ctx: BotsCheckContext): Bots
     }
     for (const pid of new Set(routeIds)) {
       const p = presetById.get(pid);
+      if (p && isPaidPreset(p)) issues.push(`${at}.route: preset "${pid}" is a paid route; paid routes have a per-bot spending cap only in the web gateway, so a Telegram bot cannot use one (I58)`);
       if (p?.kind === "acp" && p.providerId !== undefined && (TERMS_PROVIDERS as readonly string[]).includes(p.providerId) && terms[p.providerId] !== true) {
         issues.push(`${at}.route: preset "${pid}" uses ${p.providerId} through the proxy, which may break that vendor's terms; it needs termsAccepted.${p.providerId}, set only in the settings UI`);
       }

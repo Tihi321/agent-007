@@ -287,3 +287,15 @@ test("main.ts: runMain starts the multi-bot host, says which bots run, and a gra
     assert.ok(out.includes("agent-007 stopped"));
   });
 });
+
+test("L2: a web lockout notice dropped in the control folder reaches the owner through main's own bot (the gateway holds no Telegram token)", async () => {
+  const { lockoutNotice, writeOwnerNotice } = await import("../../src/approval/ownerNotices.js");
+  await withRig({}, async (rig) => {
+    const controlDir = join(rig.dirs.data, "control");
+    assert.ok(writeOwnerNotice(controlDir, lockoutNotice("login:mallory@example.com", 15 * 60_000)));
+    await rig.agent.multi?.ownerNotices?.poll();
+    const text = await rig.seen("main", (t) => t.startsWith("Web access:"), "the lockout notice", 5000);
+    assert.match(text, /locked out for 15 minutes/);
+    assert.ok(!text.includes("mallory"), "the notice carries no login or address");
+  });
+});

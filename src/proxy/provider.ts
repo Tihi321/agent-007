@@ -209,6 +209,12 @@ export function limitProxyModels(models: Models, spec: Pick<ResolvedBot, "id">, 
     };
     /** One try. Returns the wait before the next try when it failed before any content and may be retried. */
     const once = async (attempt: number): Promise<number | undefined> => {
+      if (deps.status?.refused(i.providerId) === true) {
+        const failure = failureOf("refused");
+        report(i, failure);
+        fail(failure, "error");
+        return undefined;
+      }
       let release: (() => void) | undefined;
       try {
         release = await deps.limiters.for(i.providerId).acquire({ botId: i.botId, priority: priorityFor(i), signal });
@@ -290,6 +296,11 @@ export function limitProxyModels(models: Models, spec: Pick<ResolvedBot, "id">, 
   const guardedComplete = async (model: ModelRef, signal: AbortSignal | undefined, call: () => Promise<AssistantMessage>): Promise<AssistantMessage> => {
     const i = info(model, "complete");
     for (let attempt = 0; ; attempt++) {
+      if (deps.status?.refused(i.providerId) === true) {
+        const failure = failureOf("refused");
+        report(i, failure);
+        return errorMessageFor(model, "error", redact(markedMessage(failure)));
+      }
       let release: () => void;
       try {
         release = await deps.limiters.for(i.providerId).acquire({ botId: i.botId, priority: priorityFor(i), signal });

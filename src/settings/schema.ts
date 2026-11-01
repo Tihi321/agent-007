@@ -162,6 +162,7 @@ export const SECURITY_SCHEMA: Schema = obj(
           label: str({ label: "Label" }, { maxLength: 60 }),
           privacy: { type: "string", enum: [...PRIVACY_CLASSES], "x-ui": { widget: "select", label: "Privacy class", help: "local presets are local; acp presets send tool output to a vendor (cloud). Default by kind." } },
           autoFallback: bool(false, { label: "May be an automatic fallback", help: "Default: on for local presets, off for acp presets." }),
+          billing: { type: "string", enum: ["subscription", "paid"], "x-ui": { widget: "select", label: "Billing", help: "acp presets only. paid = billed per use (DeepSeek API, Anthropic API credits, Gemini): usable only by web bots the owner enabled with a daily and monthly cap (I58)." } },
         },
         ["id", "kind", "modelId", "contextWindow", "maxTokens", "label"],
         { titleKey: "label" },

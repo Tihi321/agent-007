@@ -48,7 +48,7 @@ test("setupCheck output never holds the key (good proxy, wrong key, dead port, b
 
 test("the setup-check report is redacted even if a line were to carry the key", () => {
   const redact = createRedactor([FAKE_KEY]);
-  const leaky = { endpoint: proxyEndpoint({ port: 1 }), health: { ok: false as const, reason: "down" as const, failure: failureOf("down") }, models: { ok: false as const, reason: "down" as const, failure: failureOf("down") }, presets: [{ presetId: `p-${FAKE_KEY}`, providerId: "codex", modelId: FAKE_KEY, available: false }], unusedModelIds: [FAKE_KEY], ok: false };
+  const leaky = { endpoint: proxyEndpoint({ port: 1 }), health: { ok: false as const, reason: "down" as const, failure: failureOf("down") }, models: { ok: false as const, reason: "down" as const, failure: failureOf("down") }, presets: [{ presetId: `p-${FAKE_KEY}`, providerId: "codex", modelId: FAKE_KEY, available: false }], unusedModelIds: [FAKE_KEY], authMethods: {}, warnings: [], ok: false };
   const text = formatSetupReport(leaky, redact).join("\n");
   assert.ok(!text.includes(FAKE_KEY));
 });
