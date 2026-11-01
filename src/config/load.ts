@@ -9,6 +9,7 @@
  * unknown server.
  */
 
+import { existsSync } from "node:fs";
 import type { RunnerProviderInput } from "../pi/adapter.js";
 import { describeRunnerAuth } from "../pi/adapter.js";
 import { normalizeWin } from "./paths.js";
@@ -80,4 +81,9 @@ export function selectRunner(config: Config, secrets: Pick<Secrets, "lmStudioApi
 /** Handy for tests and S7: the normalised form used to compare two config paths. */
 export function samePath(a: string, b: string): boolean {
   return normalizeWin(a) === normalizeWin(b);
+}
+
+/** The one-line message for a missing config file (instead of a raw ENOENT); undefined when the file exists. */
+export function missingConfigMessage(configPath: string, exists: (p: string) => boolean = existsSync): string | undefined {
+  return exists(configPath) ? undefined : `config file not found: ${configPath}. Run \`yarn setup:local\` for a dev setup, or deploy with deploy/deploy-app.ps1`;
 }

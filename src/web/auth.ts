@@ -152,6 +152,12 @@ export class AuthService {
     return undefined;
   }
 
+  /** True while an unexpired owner-reset code is pending (no detail beyond that). */
+  resetPending(): boolean {
+    const c = this.#readClaim();
+    return c !== undefined && c.reset && c.expiresAt >= this.#now();
+  }
+
   #checkClaimCode(code: unknown): { reset: boolean } {
     const c = this.#readClaim();
     if (!c || typeof code !== "string" || code.length > 200 || c.expiresAt < this.#now() || !safeEqual(c.codeHash, hashSecret("owner-code", code))) {

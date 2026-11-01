@@ -116,7 +116,7 @@ async function waitUntil(cond: () => boolean, ms: number, what: string): Promise
 }
 
 test("node dist/src/main.js with the example config (patched to temp dirs and the fake runner): starts, takes the lock, 2nd instance exits 3, IPC shutdown exits 0", async () => {
-  assert.ok(existsSync(MAIN_JS), "run `npm run build` first");
+  assert.ok(existsSync(MAIN_JS), "run `yarn build` first");
   const fake = await startFakeOpenAi({ behavior: e2eBehavior, modelId: MODEL_ID, requireKey: LM_TOKEN });
   const d = makeDirs();
   // Start from config/config.example.json and change only what must point at the temp dirs and the fake runner.

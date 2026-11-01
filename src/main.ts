@@ -16,6 +16,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { startAgent } from "./agent/harness.js";
 import type { AgentHandle, StartOptions } from "./agent/harness.js";
+import { missingConfigMessage } from "./config/load.js";
 import { ConfigError } from "./config/schema.js";
 import { SecretsError } from "./config/secrets.js";
 import { SettingsAclError } from "./settings/acl.js";
@@ -84,6 +85,12 @@ export async function runMain(cli: CliOptions, io: MainIO = {}): Promise<number>
   const out = io.out ?? ((l: string) => void process.stdout.write(`${l}\n`));
   const err = io.err ?? ((l: string) => void process.stderr.write(`${l}\n`));
   const proc: ProcessLike = io.proc ?? process;
+
+  const missing = missingConfigMessage(cli.configPath);
+  if (missing) {
+    err(`agent-007: ${missing}`);
+    return EXIT_FATAL;
+  }
 
   let agent: AgentHandle | undefined;
   let resolveDone: (code: number) => void = () => undefined;

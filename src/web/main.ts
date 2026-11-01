@@ -12,17 +12,17 @@
  */
 import { execFile } from "node:child_process";
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { derivedPresets } from "../agent/multibot.js";
 import { isPaidPreset, parseBots, termsOf } from "../bots/schema.js";
 import type { PresetConfig, TermsAccepted } from "../bots/schema.js";
-import { loadConfig } from "../config/load.js";
+import { loadConfig, missingConfigMessage } from "../config/load.js";
 import type { Config } from "../config/schema.js";
 import { loadSecrets } from "../config/secrets.js";
 import type { Secrets } from "../config/secrets.js";
 import { composeRawConfig } from "../settings/load.js";
-import { parseConfig } from "../config/schema.js";
+import { defaultsFromEnv, parseConfig } from "../config/schema.js";
 import { createRedactor } from "../logging/redact.js";
 import { DEFAULT_PROXY_PORT, ProxyStatus, fetchHealth, proxyEndpoint } from "../proxy/health.js";
 import { startWebApp } from "./app.js";
@@ -139,7 +139,9 @@ export interface RunningWeb {
 }
 
 export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void process.stdout.write(`${l}\n`)): Promise<RunningWeb> {
-  const early = parseConfig(composeRawConfig(readFileSync(cli.configPath, "utf8"), { env: process.env as never }).raw, process.env as never);
+  const missing = missingConfigMessage(cli.configPath);
+  if (missing) throw new Error(missing);
+  const early = parseConfig(composeRawConfig(readFileSync(cli.configPath, "utf8"), { env: defaultsFromEnv() }).raw, defaultsFromEnv());
   const strataFile = early.model.runners.strata?.configFile;
   // L8: the file is parsed (and its ACL checked) once, and only the model keys are kept; the Telegram token is not held by this process.
   // Lockout notices reach the owner through the agent: startWebApp writes them to the control folder, the agent's own bot sends them (least privilege).
@@ -177,6 +179,7 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
   }
   const app = await startWebApp({
     dataDir,
+    assetsDir: resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "ui", "web"),
     port: cli.port,
     mode: cli.mode,
     publicHosts: cli.publicHost ? [cli.publicHost] : [],
@@ -195,7 +198,7 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
       : {}),
   });
   out(`web gateway listening on http://127.0.0.1:${app.gateway.port} (${cli.mode})`);
-  if (!app.stack.auth.ownerExists()) out(`No owner yet: run "npm run web-owner-code -- --data-dir ${dataDir}" and open http://localhost:${app.gateway.port}/claim on this PC.`);
+  if (!app.stack.auth.ownerExists()) out(`No owner yet: run "yarn web-owner-code --data-dir ${dataDir}" and open http://localhost:${app.gateway.port}/claim on this PC.`);
   return {
     app,
     stop: async () => {

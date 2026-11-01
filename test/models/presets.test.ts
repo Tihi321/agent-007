@@ -10,7 +10,7 @@ import { fallbackCandidates, pickerEntries, switchVerdict } from "../../src/mode
 import { NOTES, baseSecurity, bot, research, withBots } from "../bots/helpers.js";
 import { ALL_PRESETS, ALL_TERMS, ANTI, CLAUDE, CODEX, CODEX2, LM, NO_TERMS, STRATA, botOf, route } from "./helpers.js";
 
-const ROOT = process.cwd(); // npm test runs from the repo root
+const ROOT = process.cwd(); // yarn test runs from the repo root
 
 test("an activePreset outside route.allowed is rejected and never used", () => {
   const r = route({ allowed: ["lmstudio", "strata"] });

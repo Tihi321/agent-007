@@ -1,6 +1,6 @@
 /**
  * Static files of the settings UI (S18.1, I25a). The map is built ONCE at start from a FIXED file list: a URL is only ever looked
- * up in the map, never joined to a path, so there is nothing to traverse. `npm run build` copies `ui/settings/*` to
+ * up in the map, never joined to a path, so there is nothing to traverse. `yarn build` copies `ui/settings/*` to
  * `dist/ui/settings/*` (`scripts/settings/copy-ui.mjs`), which is where the deployed code finds them.
  */
 import { readFileSync } from "node:fs";

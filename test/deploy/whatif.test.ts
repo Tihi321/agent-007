@@ -167,7 +167,7 @@ test("S7.5 deploy-app -WhatIf: prints all five steps and changes nothing", { ski
     let r = runDeploy("deploy-app.ps1", args);
     assert.equal(r.status, 0, r.all);
     for (const n of [1, 2, 3, 4, 5]) assert.match(r.stdout, new RegExp(`step ${n}/5`), `step ${n}`);
-    assert.match(r.stdout, /npm ci --omit=dev --ignore-scripts/);
+    assert.match(r.stdout, /workspaces focus --production/);
     assert.match(r.stdout, /agent a7fixturenouser RX only/);
     assert.match(r.stdout, /copy .*config\.example\.json to .*config\.json/);
     assert.deepEqual(snapshot(fx.root), before);

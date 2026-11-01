@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "description": "Personal 24/7 agent on Pi Durable 1.4.0 with a local model runner and a Telegram bridge",
+  "packageManager": "yarn@4.18.1",
   "engines": {
     "node": ">=24.14.0 <25"
   },
@@ -34,7 +35,10 @@
     "verify-audit": "node dist/scripts/settings/verify-audit.js",
     "web": "node dist/src/web/main.js",
     "web-owner-code": "node dist/src/web/cli.js owner-code",
-    "web-lockdown": "node dist/src/web/cli.js lockdown"
+    "web-lockdown": "node dist/src/web/cli.js lockdown",
+    "setup:local": "node dist/scripts/setup-local.js",
+    "web:local": "node dist/scripts/local-run.js web",
+    "start:local": "node dist/scripts/local-run.js start"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "2.0.2",

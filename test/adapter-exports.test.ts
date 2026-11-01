@@ -1,6 +1,6 @@
 /**
  * S1.0 done-check: every adapter export that Slices 2 to 7 need exists. Values get a runtime check;
- * types get an annotated reference, so `npm run build` fails if one disappears.
+ * types get an annotated reference, so `yarn build` fails if one disappears.
  */
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";

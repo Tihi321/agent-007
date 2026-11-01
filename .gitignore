@@ -5,3 +5,8 @@ dist/
 *.local.json
 *.sqlite*
 secrets*.json
+
+.yarn/*
+!.yarn/releases
+.pnp.*
+.local/

@@ -1,4 +1,4 @@
-// Copies ui/settings/* to dist/ui/settings/* (S18.1). Run by `npm run build`, after tsc. Plain Node, no dependency.
+// Copies ui/settings/* to dist/ui/settings/* (S18.1). Run by `yarn build`, after tsc. Plain Node, no dependency.
 // deploy-app.ps1 copies dist/, so the settings UI is deployed with no change to the deploy scripts.
 import { copyFileSync, mkdirSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

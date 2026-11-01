@@ -14,7 +14,7 @@ cd C:\projects\Personal\agent-007\deploy
 .\grant-folder-acls.ps1 -WhatIf         # S7.2  needs config.json (copy config\config.example.json and edit it first)
 .\grant-folder-acls.ps1
 .\new-secrets.ps1 -Runner lmstudio      # S7.4  YOU type the tokens (hidden). With Strata: -Runner strata
-.\deploy-app.ps1 -WhatIf                # S7.5  npm ci / build / test, copy to Program Files (downloads from npm)
+.\deploy-app.ps1 -WhatIf                # S7.5  yarn install / build / test, copy to Program Files (downloads from the npm registry)
 .\deploy-app.ps1
 .\register-task.ps1 -WhatIf             # S7.6
 .\register-task.ps1
