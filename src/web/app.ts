@@ -10,6 +10,7 @@ import type { WebAudit } from "./audit.js";
 import { ApprovalBroker } from "./chat/approvals.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { ChatService } from "./chat/service.js";
+import { watchKillSwitch } from "./killswitch.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { chatRoutes } from "./routes/chat.js";
@@ -43,8 +44,11 @@ export interface WebAppOptions {
   /** Test seam: replaces the identity verifier. */
   identify?: GatewayOptions["identify"];
   rate?: GatewayOptions["rate"];
+  bodyTimeoutMs?: number;
   /** How long a finished chat run stays available to a late SSE client (ms). */
   keepRunMs?: number;
+  /** The agent control folder: when its kill-switch flag exists, every web session ends and the API answers 503 (S36). */
+  controlDir?: string;
 }
 
 export interface WebApp {
@@ -83,12 +87,21 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
   const scheduler = o.scheduler ?? new TurnScheduler({ slots: 1, now });
   const chat = new ChatService({ dataDir: o.dataDir, audit: stack.audit, users: stack.users, presets: o.presets, terms: o.terms, scheduler, engine: o.engine, approvals: new ApprovalBroker(stack.audit, { now }), now, ...(o.keepRunMs !== undefined ? { keepRunMs: o.keepRunMs } : {}) });
   admin.sweepDisabled();
+  const sweep = setInterval(() => {
+    try {
+      admin.sweepDisabled();
+    } catch {
+      /* the next round tries again */
+    }
+  }, 6 * 3_600_000);
+  sweep.unref();
   const identify = o.identify ?? makeIdentityVerifier({ port: o.port, publicHosts: o.mode === "tailnet" ? o.publicHosts : [], whois: o.whois ?? (async () => undefined) });
   const assets = o.assetsDir ? loadWebAssets(o.assetsDir) : undefined;
   const userCaps = (userId: string) => {
     const u = stack.users.read().users[userId];
     return u && u.status === "active" ? { caps: u.caps } : undefined;
   };
+  const watch = o.controlDir ? watchKillSwitch({ controlDir: o.controlDir, sessions: stack.sessions, audit: stack.audit }) : undefined;
   const gateway = await startGateway({
     host: "127.0.0.1",
     port: o.port,
@@ -100,7 +113,9 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     routes: { ...authRoutes(stack), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin) },
     ...(assets ? { assets } : {}),
     now,
+    ...(watch ? { lockedDown: watch.lockedDown } : {}),
     ...(o.rate ? { rate: o.rate } : {}),
+    ...(o.bodyTimeoutMs !== undefined ? { bodyTimeoutMs: o.bodyTimeoutMs } : {}),
   });
   return {
     gateway,
@@ -109,6 +124,8 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     chat,
     close: async () => {
       for (const u of Object.keys(stack.users.read().users)) chat.stopAllFor(u);
+      watch?.stop();
+      clearInterval(sweep);
       await gateway.close();
     },
   };

@@ -57,14 +57,22 @@ export function sendJson(res: ServerResponse, status: number, value: unknown, ex
 
 export type BodyResult = { ok: true; value: unknown } | { ok: false; status: number; reason: string };
 
-export function readJsonBody(req: IncomingMessage, limit = BODY_LIMIT): Promise<BodyResult> {
+export const BODY_TIMEOUT_MS = 15_000;
+
+export function readJsonBody(req: IncomingMessage, limit = BODY_LIMIT, timeoutMs = BODY_TIMEOUT_MS): Promise<BodyResult> {
   return new Promise((resolve) => {
     const chunks: Buffer[] = [];
     let size = 0;
     let done = false;
+    // a body that drips in slowly cannot hold a connection open (the request timeout is off for SSE)
+    const timer = setTimeout(() => {
+      finish({ ok: false, status: 408, reason: "body too slow" });
+      req.destroy();
+    }, timeoutMs);
     const finish = (r: BodyResult): void => {
       if (done) return;
       done = true;
+      clearTimeout(timer);
       resolve(r);
     };
     req.on("data", (c: Buffer) => {

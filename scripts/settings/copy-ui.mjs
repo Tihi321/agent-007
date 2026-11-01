@@ -17,3 +17,22 @@ for (const name of readdirSync(from, { withFileTypes: true })) {
   n++;
 }
 process.stdout.write(`copied ${n} settings UI files to dist/ui/settings\n`);
+
+// Milestone 2 (S35): the web UI. ui/common/* and ui/web/* are copied FLAT into dist/ui/web so the browser imports "./dom.js" next to "/app.js".
+{
+  const web = join(root, "ui", "web");
+  const common = join(root, "ui", "common");
+  const out = join(root, "dist", "ui", "web");
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  let m = 0;
+  for (const dir of [common, web]) {
+    for (const f of readdirSync(dir, { withFileTypes: true })) {
+      if (!f.isFile()) continue;
+      copyFileSync(join(dir, f.name), join(out, f.name));
+      m++;
+    }
+  }
+  process.stdout.write(`copied ${m} web UI files to dist/ui/web
+`);
+}

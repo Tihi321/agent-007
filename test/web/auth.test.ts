@@ -331,16 +331,17 @@ test("HTTP: claim and login over the gateway set a __Host- cookie with Secure, H
     const csrf = fin.json().csrf as string;
     assert.equal(fin.json().recoveryCodes.length, 10);
     // /api/me needs the cookie and CSRF
-    assert.equal((await http(port, "POST", "/api/me", { body: {}, headers: { ...hdr } , host})).status, 401);
-    assert.equal((await http(port, "POST", "/api/me", { body: {}, headers: { ...hdr, cookie }, host })).status, 403, "no CSRF header");
-    const me = await http(port, "POST", "/api/me", { body: {}, headers: { ...hdr, cookie, "x-csrf-token": csrf }, host });
-    assert.equal(me.status, 200);
+    assert.equal((await http(port, "GET", "/api/me", { host })).status, 401);
+    const me = await http(port, "GET", "/api/me", { headers: { cookie }, host });
+    assert.equal(me.status, 200, "a reloaded page can get its CSRF token with the cookie alone");
     assert.equal(me.json().user.role, "owner");
+    assert.equal(me.json().csrf, csrf);
+    assert.equal((await http(port, "POST", "/api/logout", { body: {}, headers: { ...hdr, cookie }, host })).status, 403, "but a state change still needs the CSRF header");
     assert.equal((await http(port, "GET", "/api/state", { host })).json().claimed, true);
     // logout clears the cookie and the session is gone
     const out = await http(port, "POST", "/api/logout", { body: {}, headers: { ...hdr, cookie, "x-csrf-token": csrf }, host });
     assert.match(String(out.headers["set-cookie"]), /Max-Age=0/);
-    assert.equal((await http(port, "POST", "/api/me", { body: {}, headers: { ...hdr, cookie, "x-csrf-token": csrf }, host })).status, 401);
+    assert.equal((await http(port, "GET", "/api/me", { headers: { cookie }, host })).status, 401);
     // a wrong password over HTTP is the generic 401, then the lockout is a 429 with Retry-After
     let last = 0;
     for (let i = 0; i < 6; i++) last = (await http(port, "POST", "/api/login/password", { body: { login: "owner@example.com", password: "x".repeat(14), totpCode: "000000" }, headers: hdr, host })).status;

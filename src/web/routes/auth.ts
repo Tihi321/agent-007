@@ -78,7 +78,8 @@ export function authRoutes(stack: WebStack): Record<string, RouteDef> {
         return { status: 200, body: { ok: true }, headers: { "Set-Cookie": clearCookie() } };
       },
     },
-    "POST /api/me": {
+    /** A GET on purpose: after a reload the page has no CSRF token (the cookie is HttpOnly), so it asks here. Read-only; same-origin only; no CORS. */
+    "GET /api/me": {
       auth: "session",
       handler: async (c) => {
         const s = c.session;

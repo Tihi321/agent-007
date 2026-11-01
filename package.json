@@ -32,6 +32,7 @@
     "dsh:probe": "node dist/src/jobrunner/drivers/dsh/probeCli.js",
     "proxy:check": "node dist/src/proxy/setupCheck.js",
     "verify-audit": "node dist/scripts/settings/verify-audit.js",
+    "web": "node dist/src/web/main.js",
     "web-owner-code": "node dist/src/web/cli.js owner-code",
     "web-lockdown": "node dist/src/web/cli.js lockdown"
   },

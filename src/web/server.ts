@@ -77,8 +77,12 @@ export interface GatewayOptions {
   assets?: Map<string, { body: string | Buffer; type: string }>;
   now?: () => number;
   maxStreamsPerUser?: number;
+  /** A POST body must arrive within this time (default 15 s). */
+  bodyTimeoutMs?: number;
   /** Token bucket per client (capacity, per second). */
   rate?: { capacity: number; perSec: number };
+  /** True while the owner kill switch or a lockdown is on: every API route except the public state answers 503 and no session resolves. */
+  lockedDown?(): boolean;
   /** Called when something other than the normal flow happens (for tests and the Telegram notifier). */
   onEvent?(e: { kind: string; detail?: string }): void;
 }
@@ -233,6 +237,10 @@ export async function startGateway(o: GatewayOptions): Promise<RunningGateway> {
 
     // ---- API ----
     if (method === "HEAD") return send(res, 405);
+    if (o.lockedDown?.() === true && !(method === "GET" && url.pathname === "/api/state")) {
+      if (method === "POST") req.resume();
+      return sendJson(res, 503, { error: "lockdown", message: "The web access is switched off by the owner." });
+    }
     const route = o.routes[`${method} ${url.pathname}`];
     if (!route) {
       if (method === "POST") req.resume();
@@ -245,6 +253,12 @@ export async function startGateway(o: GatewayOptions): Promise<RunningGateway> {
       session = cookie ? o.sessions.resolve(cookie, { ip, ua }) : undefined;
       if (!session) {
         if (method === "POST") req.resume();
+        return sendJson(res, 401, { error: "no_session" });
+      }
+      // the session belongs to ONE login: a cookie used from another tailnet identity (a stolen cookie) or, from the PC itself, by a non-owner is refused
+      if ((identity.kind === "tailscale" && identity.login.toLowerCase() !== session.login.toLowerCase()) || (identity.kind === "local" && session.role !== "owner")) {
+        if (method === "POST") req.resume();
+        o.audit.write({ kind: "identity_rejected", user: session.userId, detail: { reason: "session does not match the identity" } });
         return sendJson(res, 401, { error: "no_session" });
       }
       if ((route.auth === "owner" && session.role !== "owner") || (route.auth === "admin" && session.role !== "owner" && session.role !== "admin")) {
@@ -266,7 +280,7 @@ export async function startGateway(o: GatewayOptions): Promise<RunningGateway> {
     }
     let body: unknown = {};
     if (method === "POST") {
-      const b = await readJsonBody(req);
+      const b = await readJsonBody(req, undefined, o.bodyTimeoutMs);
       if (!b.ok) return sendJson(res, b.status, { error: "bad_body", message: b.reason });
       body = b.value;
     }

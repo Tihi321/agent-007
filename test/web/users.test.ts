@@ -276,14 +276,14 @@ test("HTTP: admin routes need an admin session; sensitive ones need a fresh step
     assert.equal(fin.status, 200, fin.text);
     assert.match(String(fin.headers["set-cookie"]), /^__Host-a7web=.+; Secure; HttpOnly; SameSite=Strict; Path=\//);
     const carolCookie = cookieFrom(fin);
-    const me = await http(port, "POST", "/api/me", { body: {}, headers: { ...tsHdr, cookie: carolCookie, "x-csrf-token": fin.json().csrf }, host: hostTs });
+    const me = await http(port, "GET", "/api/me", { headers: { ...tsHdr, cookie: carolCookie }, host: hostTs });
     assert.equal(me.status, 200);
     // revoke: the next request of the revoked user fails
     const carolId = Object.entries(w.stack.users.read().users).find(([, u]) => u.login === "carol@example.com")![0];
     w.stack.auth.stepUp(w.stack.sessions.resolve(w.owner.sessionId, { ip: "x", ua: "t" })!, { totpCode: totpAt(w.stack.box.open(w.stack.credentials.read().users[w.owner.userId]!.password!.totpSealed, w.owner.userId), totpStep(w.clock.t + 30_000)) }, LOCAL);
     const dis = await http(port, "POST", "/api/admin/users/disable", { body: { id: carolId }, headers: as(w.owner), host });
     assert.equal(dis.status, 200, dis.text);
-    assert.equal((await http(port, "POST", "/api/me", { body: {}, headers: { ...tsHdr, cookie: carolCookie, "x-csrf-token": fin.json().csrf }, host: hostTs })).status, 403, "now a stranger: the generic 403");
+    assert.equal((await http(port, "GET", "/api/me", { headers: { ...tsHdr, cookie: carolCookie }, host: hostTs })).status, 403, "now a stranger: the generic 403");
     // the audit view is owner-only and has no bodies
     const audit = await http(port, "POST", "/api/admin/audit", { body: {}, headers: as(w.owner), host });
     assert.equal(audit.status, 200);

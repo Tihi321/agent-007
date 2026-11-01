@@ -91,7 +91,7 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-export async function makeApp(o: { engine?: ScriptedEngine; realEngine?: ChatEngine; ownerCaps?: boolean; mode?: WebAppOptions["mode"]; keepRunMs?: number; rate?: WebAppOptions["rate"] } = {}): Promise<TestApp> {
+export async function makeApp(o: { engine?: ScriptedEngine; realEngine?: ChatEngine; claim?: boolean; controlDir?: string; bodyTimeoutMs?: number; ownerCaps?: boolean; mode?: WebAppOptions["mode"]; keepRunMs?: number; rate?: WebAppOptions["rate"] } = {}): Promise<TestApp> {
   const dir = tempDir("a7-app-");
   const port = await freePort();
   const audit = memoryWebAudit();
@@ -112,23 +112,29 @@ export async function makeApp(o: { engine?: ScriptedEngine; realEngine?: ChatEng
     identify: async (req) => (req.headers["x-test-identity"] ? { ok: true, identity: { kind: "tailscale", login: String(req.headers["x-test-identity"]) } } : { ok: true, identity: { kind: "local" } }),
     ...(o.rate ? { rate: o.rate } : {}),
     ...(o.keepRunMs !== undefined ? { keepRunMs: o.keepRunMs } : {}),
+    ...(o.controlDir ? { controlDir: o.controlDir } : {}),
+    ...(o.bodyTimeoutMs !== undefined ? { bodyTimeoutMs: o.bodyTimeoutMs } : {}),
   });
   const host = (w?: Who) => (w?.login ? PUBLIC : `localhost:${port}`);
   const origin = (w?: Who) => (w?.login ? `https://${PUBLIC}` : `http://localhost:${port}`);
   const hdr = (w?: Who): Record<string, string> => ({ origin: origin(w), ...(w ? { cookie: w.cookie, "x-csrf-token": w.csrf } : {}), ...(w?.login ? { "x-test-identity": w.login } : {}) });
   const post = (w: Who | undefined, path: string, body: unknown = {}) => http(port, "POST", path, { body, headers: hdr(w), host: host(w) });
 
+  let owner: Who = { cookie: "", csrf: "", userId: "" };
+  let ownerUserId = "";
+  if (o.claim !== false) {
   // claim the owner on the PC
   const { code } = app.stack.auth.issueOwnerCode();
   const begin = (await post(undefined, "/api/claim/begin", { code })).json();
   const fin = await post(undefined, "/api/claim/finish", { claimId: begin.claimId, login: "owner@example.com", displayName: "Olive", password: "an owner password long", totpCode: totpAt(begin.totp.secret, totpStep(clock.t)) });
   if (fin.status !== 200) throw new Error("claim failed: " + fin.text);
-  const ownerUserId = Object.entries(app.stack.users.read().users).find(([, u]) => u.role === "owner")![0];
-  const owner: Who = { cookie: String(fin.headers["set-cookie"]).split(";")[0] as string, csrf: fin.json().csrf, userId: ownerUserId };
+  ownerUserId = Object.entries(app.stack.users.read().users).find(([, u]) => u.role === "owner")![0];
+  owner = { cookie: String(fin.headers["set-cookie"]).split(";")[0] as string, csrf: fin.json().csrf, userId: ownerUserId };
   if (o.ownerCaps !== false) {
     app.stack.users.update((d) => {
       (d.users[ownerUserId] as { caps: Caps }).caps = { ...defaultCaps(), presets: ["strata", "claude-sonnet"], tools: [...USER_TOOL_UNIVERSE], maxBots: 8, maxChatsPerDay: 1000 };
     });
+  }
   }
   let n = 0;
   const api: TestApp = {

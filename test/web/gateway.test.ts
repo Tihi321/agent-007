@@ -24,7 +24,7 @@ async function rig(over: Partial<GatewayOptions> = {}, routes: Record<string, Ro
     publicHosts: ["pc.tail1234.ts.net"],
     audit,
     sessions: { resolve: (cookie) => (cookie === SID ? session : undefined) },
-    identify: async () => ({ ok: true, identity: { kind: "local" } }),
+    identify: async () => ({ ok: true, identity: { kind: "tailscale", login: "a@x.com" } }),
     assets: new Map([["/", { body: "<!doctype html><title>x</title>", type: "text/html; charset=utf-8" }]]),
     routes: {
       "GET /api/ping": { auth: "public", handler: async () => ({ status: 200, body: { ok: true } }) },
