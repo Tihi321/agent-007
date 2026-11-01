@@ -149,7 +149,7 @@ export function parseCaps(v: unknown, path = "caps"): Caps {
   const o = exact(v, path, ["presets", "tools", "maxBots", "maxChatsPerDay", "maxTokensPerDay", "maxJobsPerDay", "storageMB"]);
   if (o["maxJobsPerDay"] !== 0) fail(`${path}.maxJobsPerDay`, "must be 0 (no jobs for users in this milestone)");
   return {
-    presets: strs(o["presets"], `${path}.presets`, 20),
+    presets: strs(o["presets"], `${path}.presets`, 128),
     tools: strs(o["tools"], `${path}.tools`, 40),
     maxBots: int(o["maxBots"], `${path}.maxBots`, 0, 20),
     maxChatsPerDay: int(o["maxChatsPerDay"], `${path}.maxChatsPerDay`, 0, 100_000),

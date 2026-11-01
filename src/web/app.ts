@@ -8,6 +8,7 @@ import { extname, join } from "node:path";
 import { lockoutNotice, writeOwnerNotice } from "../approval/ownerNotices.js";
 import type { PresetConfig, TermsAccepted } from "../bots/schema.js";
 import type { WebAudit } from "./audit.js";
+import { effectiveCaps } from "./capabilities.js";
 import { ApprovalBroker } from "./chat/approvals.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { ChatService } from "./chat/service.js";
@@ -17,6 +18,8 @@ import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { chatRoutes } from "./routes/chat.js";
 import { paidAdminRoutes } from "./routes/paid.js";
+import { modelsRoutes } from "./routes/models.js";
+import type { ModelsRouteDeps } from "./routes/models.js";
 import { privacyRoutes } from "./routes/privacy.js";
 import { TurnScheduler } from "./runtime/scheduler.js";
 import { GatewayStartError, checkStartup, startGateway } from "./server.js";
@@ -38,6 +41,8 @@ export interface WebAppOptions {
   terms: () => TermsAccepted;
   /** MS2: the live preset catalogue (security.json + Models page). Routes of MS4 use it; `presets`/`terms` stay functions so tests can inject plain lists. */
   catalog?: PresetCatalog;
+  /** Test seams of the Models routes (fake fetch, resolver, clock, rate-limit map). */
+  models?: ModelsRouteDeps;
   engine: ChatEngine;
   whois?: WhoisFn;
   serveStatus?: () => Promise<string | undefined> | string | undefined;
@@ -96,7 +101,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
   const scheduler = o.scheduler ?? new TurnScheduler({ slots: 1, now });
   const chat = new ChatService({ dataDir: o.dataDir, audit: stack.audit, users: stack.users, presets: o.presets, terms: o.terms, scheduler, engine: o.engine, approvals: new ApprovalBroker(stack.audit, { now }), now, ...(o.keepRunMs !== undefined ? { keepRunMs: o.keepRunMs } : {}) });
   // L3: disabling or deleting a user, the kill switch and the owner lockdown also stop the running turns, not only the sessions
-  const admin = new UserAdmin(stack, { now, knownPresets: () => o.presets().map((p) => p.id), onUserRevoked: (id) => void chat.stopAllFor(id), dropPaid: (id) => chat.paid.dropFor(id) });
+  const admin = new UserAdmin(stack, { now, knownPresets: () => (o.catalog ? o.catalog.presets() : o.presets()).map((p) => p.id), onUserRevoked: (id) => void chat.stopAllFor(id), dropPaid: (id) => chat.paid.dropFor(id) });
   admin.sweepDisabled();
   const sweep = setInterval(() => {
     try {
@@ -110,7 +115,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
   const assets = o.assetsDir ? loadWebAssets(o.assetsDir) : undefined;
   const userCaps = (userId: string) => {
     const u = recordFor(stack.users.read().users, userId);
-    return u && u.status === "active" ? { caps: u.caps } : undefined;
+    return u && u.status === "active" ? { caps: effectiveCaps(u, o.presets().map((p) => p.id)) } : undefined;
   };
   const watch = o.controlDir ? watchKillSwitch({ controlDir: o.controlDir, sessions: stack.sessions, audit: stack.audit, onTrip: () => void chat.stopAll() }) : undefined;
   const gateway = await startGateway({
@@ -122,7 +127,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     identify,
     admit: admin.admit,
     presentInvite: admin.presentInvite,
-    routes: { ...authRoutes(stack, { onLockdown: () => void chat.stopAll() }), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin), ...paidAdminRoutes(stack, chat, o.presets) },
+    routes: { ...authRoutes(stack, { onLockdown: () => void chat.stopAll() }), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin), ...paidAdminRoutes(stack, chat, o.presets), ...(o.catalog ? modelsRoutes({ stack, chat, catalog: o.catalog, audit: stack.audit, ...(o.models ?? {}) }) : {}) },
     ...(assets ? { assets } : {}),
     now,
     ...(watch ? { lockedDown: watch.lockedDown } : {}),

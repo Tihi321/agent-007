@@ -13,6 +13,7 @@ import type { PresetConfig, TermsAccepted } from "../../bots/schema.js";
 import type { WebAudit } from "../audit.js";
 import { bodyDigest } from "../crypto.js";
 import { recordFor } from "../schemas.js";
+import { effectiveCaps } from "../capabilities.js";
 import type { Caps, UsersFile } from "../schemas.js";
 import type { JsonStore } from "../store.js";
 import { SchedulerAbortedError, SchedulerBusyError, TurnScheduler } from "../runtime/scheduler.js";
@@ -151,7 +152,7 @@ export class ChatService {
   #user(userId: string): { caps: Caps; login: string } {
     const u = recordFor(this.#d.users.read().users, userId);
     if (!u || u.status !== "active") throw new ChatError(403, "Not allowed.");
-    return { caps: u.caps, login: u.login };
+    return { caps: effectiveCaps(u, this.#d.presets().map((p) => p.id)), login: u.login };
   }
 
   bots(userId: string): UserBotStore {

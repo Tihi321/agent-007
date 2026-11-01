@@ -1,3 +1,5 @@
+import type { Caps, WebUser } from "./schemas.js";
+
 /**
  * What a non-owner bot can ever have (S32, S33, I50). This is the UNIVERSE: the tool registry for user bots is built from exactly these
  * names, so a host tool does not exist for them (capability absent, not policy-denied). A user's `caps.tools` is a subset of it.
@@ -30,3 +32,11 @@ export const HOST_TOOL_NAMES: readonly string[] = [
 
 /** The most tools a user bot may load at once (I27 is 10 per bot). */
 export const USER_ALWAYS_LOADED_MAX = 10;
+
+/**
+ * The caps a user has RIGHT NOW (I61): the owner's presets are every configured preset (security.json and the Models page), anyone else's are
+ * exactly `caps.presets`. The stored owner caps keep their other limits; the stored `presets` of the owner row is ignored.
+ */
+export function effectiveCaps(user: Pick<WebUser, "role" | "caps">, presetIds: readonly string[]): Caps {
+  return user.role === "owner" ? { ...user.caps, presets: [...presetIds] } : user.caps;
+}

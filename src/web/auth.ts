@@ -40,7 +40,7 @@ export const OWNER_CODE_TTL_MS = 10 * 60_000;
 export const RECOVERY_CODE_COUNT = 10;
 
 export function ownerCaps(): Caps {
-  return { presets: ["strata", "claude-sonnet", "claude-opus"], tools: ["tool_search", "ask_user", "write_file", "read_file", "list_dir", "search_files"], maxBots: 8, maxChatsPerDay: 100_000, maxTokensPerDay: 100_000_000, maxJobsPerDay: 0, storageMB: 5000 };
+  return { presets: [], tools: ["tool_search", "ask_user", "write_file", "read_file", "list_dir", "search_files"], maxBots: 8, maxChatsPerDay: 100_000, maxTokensPerDay: 100_000_000, maxJobsPerDay: 0, storageMB: 5000 };
 }
 
 export interface AuthContext {

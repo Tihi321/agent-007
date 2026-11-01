@@ -2,7 +2,11 @@
 import { request } from "node:http";
 import { createServer } from "node:net";
 import type { PresetConfig } from "../../src/bots/schema.js";
-import { memoryWebAudit } from "../../src/web/audit.js";
+import { createWebAudit, memoryWebAudit } from "../../src/web/audit.js";
+import type { WebAudit } from "../../src/web/audit.js";
+import type { PresetCatalog } from "../../src/web/models/catalog.js";
+import type { ModelsRouteDeps } from "../../src/web/routes/models.js";
+import { webPaths } from "../../src/web/paths.js";
 import { startWebApp } from "../../src/web/app.js";
 import type { WebApp, WebAppOptions } from "../../src/web/app.js";
 import type { ChatEngine, EngineTurn } from "../../src/web/chat/engine.js";
@@ -93,10 +97,20 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-export async function makeApp(o: { engine?: ScriptedEngine; realEngine?: ChatEngine; claim?: boolean; controlDir?: string; bodyTimeoutMs?: number; ownerCaps?: boolean; mode?: WebAppOptions["mode"]; keepRunMs?: number; rate?: WebAppOptions["rate"] } = {}): Promise<TestApp> {
+export async function makeApp(o: { engine?: ScriptedEngine; realEngine?: ChatEngine; claim?: boolean; controlDir?: string; bodyTimeoutMs?: number; ownerCaps?: boolean; mode?: WebAppOptions["mode"]; keepRunMs?: number; rate?: WebAppOptions["rate"];
+  /** MS4: build the preset catalogue (and the route seams) of the Models page. The audit given writes to the audit folder too, as in production. */
+  models?: (dir: string, audit: WebAudit) => { catalog: PresetCatalog; deps?: ModelsRouteDeps };
+} = {}): Promise<TestApp> {
   const dir = tempDir("a7-app-");
   const port = await freePort();
-  const audit = memoryWebAudit();
+  const mem = memoryWebAudit();
+  let audit = mem;
+  let m: ReturnType<NonNullable<typeof o.models>> | undefined;
+  if (o.models) {
+    const file = createWebAudit({ dir: webPaths(dir).auditDir });
+    audit = { events: mem.events, write: (e) => (mem.write(e), file.write(e)) };
+    m = o.models(dir, audit);
+  }
   const engine = o.engine ?? new ScriptedEngine();
   const clock = { t: Date.now() };
   const app = await startWebApp({
@@ -106,8 +120,9 @@ export async function makeApp(o: { engine?: ScriptedEngine; realEngine?: ChatEng
     publicHosts: [PUBLIC],
     serveStatus: () => JSON.stringify({ TCP: { "443": { HTTPS: true } }, Web: { [`${PUBLIC}:443`]: { Handlers: { "/": { Proxy: `http://127.0.0.1:${port}` } } } } }),
     clockSkewMs: () => 0,
-    presets: () => PRESETS,
-    terms: () => ({ claude: true, antigravity: false }),
+    presets: m ? () => m.catalog.presets() : () => PRESETS,
+    terms: m ? () => m.catalog.terms() : () => ({ claude: true, antigravity: false }),
+    ...(m ? { catalog: m.catalog, ...(m.deps ? { models: m.deps } : {}) } : {}),
     engine: o.realEngine ?? engine,
     audit,
     now: () => clock.t,

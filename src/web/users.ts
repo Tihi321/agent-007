@@ -325,9 +325,10 @@ export class UserAdmin {
 
   // ---- users ---------------------------------------------------------------------------------------------------------
 
-  listUsers(actorId: string): { id: string; login: string; displayName: string; role: Role; status: string; caps: Caps; createdAt: number; disabledAt?: number }[] {
+  /** The owner row reports `presets: "all"` (I61): the owner's models are every configured preset, not a stored list. */
+  listUsers(actorId: string): { id: string; login: string; displayName: string; role: Role; status: string; caps: Omit<Caps, "presets"> & { presets: string[] | "all" }; createdAt: number; disabledAt?: number }[] {
     this.#actor(actorId);
-    return Object.entries(this.#s.users.read().users).map(([id, u]) => ({ id, login: u.login, displayName: u.displayName, role: u.role, status: u.status, caps: u.caps, createdAt: u.createdAt, ...(u.disabledAt !== undefined ? { disabledAt: u.disabledAt } : {}) }));
+    return Object.entries(this.#s.users.read().users).map(([id, u]) => ({ id, login: u.login, displayName: u.displayName, role: u.role, status: u.status, caps: u.role === "owner" ? { ...u.caps, presets: "all" as const } : u.caps, createdAt: u.createdAt, ...(u.disabledAt !== undefined ? { disabledAt: u.disabledAt } : {}) }));
   }
 
   setCaps(actorId: string, targetId: unknown, capsIn: unknown): void {

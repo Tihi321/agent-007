@@ -180,7 +180,7 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     await until(() => /New bot/.test(body.textContent) && byTag(body, "form").length > 0);
     checkAccessibility(body, "editor");
     const preset = byName(body, "preset");
-    assert.deepEqual(preset.options.map((o) => o.textContent), ["strata", "Claude Sonnet (cloud)"]);
+    assert.deepEqual(preset.options.map((o) => o.textContent), ["strata", "Claude Sonnet (cloud)", "Claude API credits (paid)"]);
     assert.ok(!all(body).some((e) => ["readRoots", "edges", "telegramTokenRef", "shell"].includes(e.getAttribute("name") ?? "") || e.getAttribute("value") === "shell"), "no field for roots, peers, tokens or the shell");
     byName(body, "name").value = "Helper";
     byName(body, "tagline").value = "my bot";

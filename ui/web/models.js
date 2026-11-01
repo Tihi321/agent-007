@@ -145,7 +145,8 @@ export async function renderModels(ctx) {
     st.fetched[s.id] = r.ok
       ? { rows: r.data.rows || [], ignored: r.data.ignored || 0, note: r.data.note || "", ticks: new Set(), filter: prev?.filter || "", notAdded: !!prev?.notAdded }
       : { error: r.data.message || "The fetch failed.", ticks: new Set() };
-    draw();
+    if (r.ok) await reload(); // the list now knows the proxy's login methods (Claude API-key note); reload also redraws
+    else draw();
   }
 
   function drawTable() {
