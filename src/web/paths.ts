@@ -13,6 +13,8 @@ export interface WebPaths {
   credentialsFile: string;
   sessionsFile: string;
   keyFile: string;
+  modelsFile: string;
+  modelKeysFile: string;
   claimFile: string;
   lockoutFile: string;
   auditDir: string;
@@ -28,6 +30,8 @@ export function webPaths(dataDir: string): WebPaths {
     credentialsFile: win32.join(webDir, "credentials.json"),
     sessionsFile: win32.join(webDir, "sessions.json"),
     keyFile: win32.join(webDir, "web.key"),
+    modelsFile: win32.join(webDir, "models.json"),
+    modelKeysFile: win32.join(webDir, "model-keys.json"),
     claimFile: win32.join(webDir, "claim.json"),
     lockoutFile: win32.join(webDir, "lockout.json"),
     auditDir: win32.join(dataDir, "web-audit"),

@@ -13,9 +13,10 @@
  * Pure subset: imports only the S20 types and `providerIdOf`.
  */
 import { providerIdOf } from "../bots/runtime.js";
-import { PRESET_KINDS, PRIVILEGED_TOOLS, PROXY_KEY_REF, TERMS_PROVIDERS } from "../bots/schema.js";
+import { PRIVILEGED_TOOLS, PROXY_KEY_REF, TERMS_PROVIDERS, WEB_PRESET_KINDS } from "../bots/schema.js";
 import type { PresetConfig, ResolvedBot, TermsAccepted } from "../bots/schema.js";
 import { budgetProblem, compactionOverride } from "../prompt/budget.js";
+import { isLiteralLoopbackUrl } from "./sources.js";
 import type { CompactionPolicyOverride } from "../prompt/budget.js";
 
 /** Structurally the Pi `ModelRef`: what `conversation.configure({ model })` takes. */
@@ -48,8 +49,15 @@ export function needsTerms(p: PresetConfig): boolean {
  * moment of use, so a forged or stale object cannot slip through.
  */
 export function presetProblem(p: PresetConfig, terms: TermsAccepted): string | undefined {
-  if (!(PRESET_KINDS as readonly string[]).includes(p.kind)) return `"${p.id}" has kind "${String(p.kind)}": only acp and local exist, and a per-token-billed API-key preset is never a brain or a fallback (D12, I39)`;
-  if (p.apiKeyRef !== undefined && (p.kind !== "acp" || p.apiKeyRef !== PROXY_KEY_REF)) return `"${p.id}" carries a key reference other than the proxy key: a paid API key is never a brain or a fallback`;
+  if (!(WEB_PRESET_KINDS as readonly string[]).includes(p.kind)) return `"${p.id}" has kind "${String(p.kind)}": only acp, local and (web only) custom exist, and a per-token-billed API-key preset is never a brain or a fallback (D12, I39)`;
+  if (p.kind === "custom") {
+    if (p.apiKeyRef !== undefined && !/^webkey:[a-z][a-z0-9]{1,11}$/.test(p.apiKeyRef)) return `"${p.id}" carries a key reference other than its own web key`;
+    if (p.providerId !== undefined) return `"${p.id}" is a custom preset, so it has no proxy provider`;
+    if (p.privacy !== "cloud" && !(p.baseUrl !== undefined && isLiteralLoopbackUrl(p.baseUrl))) return `"${p.id}" is a custom preset on a host that is not literal loopback, so its privacy class is cloud`;
+  } else if (p.apiKeyRef !== undefined && (p.kind !== "acp" || p.apiKeyRef !== PROXY_KEY_REF)) {
+    return `"${p.id}" carries a key reference other than the proxy key: a paid API key is never a brain or a fallback`;
+  }
+  if (p.billing === "paid" && p.privacy !== "cloud") return `"${p.id}" is billed per use, which only a cloud preset can be`;
   if (p.kind === "acp" && p.privacy !== "cloud") return `"${p.id}" goes through the proxy, so its privacy class is cloud`;
   if (p.kind === "local" && p.privacy !== "local") return `"${p.id}" is a local preset, so its privacy class is local`;
   if (needsTerms(p) && terms[p.providerId as keyof TermsAccepted] !== true) return `"${p.id}" uses ${String(p.providerId)} through the proxy, which may break that vendor's terms; it needs the acknowledgment in the settings UI (I41)`;

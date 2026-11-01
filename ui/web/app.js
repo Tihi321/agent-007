@@ -7,6 +7,7 @@ import { createApi } from "./api.js";
 import { renderBotEditor, renderBots } from "./bots.js";
 import { renderChat } from "./chat.js";
 import { clear, h } from "./dom.js";
+import { renderModels } from "./models.js";
 
 export function start(env) {
   const { root, location } = env;
@@ -57,7 +58,7 @@ export function start(env) {
     clear(
       nav,
       state.user
-        ? [link("#/bots", "Bots"), link("#/account", "Account"), state.user.role === "owner" || state.user.role === "admin" ? link("#/admin", "Admin") : null, h("button", { class: "btn btn-small", type: "button", onclick: async () => { await api.call("/api/logout", {}); ctx.signedOut(); } }, "Sign out")]
+        ? [link("#/bots", "Bots"), link("#/account", "Account"), state.user.role === "owner" || state.user.role === "admin" ? link("#/admin", "Admin") : null, state.user.role === "owner" ? link("#/admin/models", "Models") : null, h("button", { class: "btn btn-small", type: "button", onclick: async () => { await api.call("/api/logout", {}); ctx.signedOut(); } }, "Sign out")]
         : null,
     );
   }
@@ -88,6 +89,7 @@ export function start(env) {
       case "account":
         return ctx.mount(await renderAccount(ctx));
       case "admin":
+        if (parts[1] === "models" && state.user.role === "owner") return ctx.mount(await renderModels(ctx));
         return ctx.mount(await renderAdmin(ctx));
       case "bot":
         return ctx.mount(await renderBotEditor(ctx, parts[1] === "new" ? "" : parts[1]));

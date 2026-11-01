@@ -30,7 +30,19 @@ main { padding: 16px; max-width: 1100px; margin: 0 auto; }
 .composer { display: flex; flex-direction: column; gap: 8px; }
 .approval { border-color: var(--warn); }
 progress { width: 160px; height: 14px; }
+.models { display: grid; gap: 12px; grid-template-columns: 1fr; }
+.models-list { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.models-main { min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.models-source { width: 100%; text-align: left; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.models-source.current { background: var(--accent-soft); border-color: var(--accent); }
+.table-wrap { overflow-x: auto; }
+.models-table { border-collapse: collapse; width: 100%; font-size: 0.9rem; }
+.models-table th, .models-table td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.models-table input[type="checkbox"], .models-main .check input { width: 22px; height: 22px; }
+.mono { font-family: var(--mono); overflow-wrap: anywhere; }
+fieldset { border: 1px solid var(--border); border-radius: var(--radius); margin: 0 0 14px; }
 @media (min-width: 900px) {
+  .models { grid-template-columns: 260px 1fr; }
   .chat { grid-template-columns: 280px 1fr; }
   .threads { max-height: 60vh; }
 }

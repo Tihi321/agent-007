@@ -144,6 +144,21 @@ export class PaidRoutes {
     }
   }
 
+  /** Removes every grant of one preset (the owner removed the model from the Models page). The usage ledger stays. Returns how many grants went. */
+  dropPreset(presetId: string): number {
+    let n = 0;
+    try {
+      this.store.update((d) => {
+        const keep = d.grants.filter((g) => g.preset !== presetId);
+        n = d.grants.length - keep.length;
+        d.grants = keep;
+      });
+    } catch {
+      /* a corrupt file is refused at the next read anyway */
+    }
+    return n;
+  }
+
   #ledgerFile(userId: string): string {
     return win32.join(userPaths(this.#dataDir, userId).root, "paid-usage.json");
   }

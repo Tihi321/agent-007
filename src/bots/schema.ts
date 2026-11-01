@@ -53,6 +53,12 @@ export const PEER_FORBIDDEN_TOOLS: readonly string[] = [
 
 export const PRESET_KINDS = ["local", "acp"] as const;
 export type PresetKind = (typeof PRESET_KINDS)[number];
+/**
+ * Kinds a preset can have in the web gateway: `custom` (an OpenAI-compatible endpoint with an optional own key) exists only in the web
+ * store (`<dataDir>\web\models.json`), never in `security.json`, whose schema enum stays `PRESET_KINDS`.
+ */
+export const WEB_PRESET_KINDS = ["local", "acp", "custom"] as const;
+export type WebPresetKind = (typeof WEB_PRESET_KINDS)[number];
 export const ACP_PROVIDERS = ["codex", "claude", "antigravity"] as const;
 export type AcpProvider = (typeof ACP_PROVIDERS)[number];
 /** Providers whose terms may forbid the use (I41, UI-24): they need `termsAccepted.<provider>`, which only the UI sets. */
@@ -105,7 +111,7 @@ export interface BotConfig {
 
 export interface PresetConfig {
   id: string;
-  kind: PresetKind;
+  kind: WebPresetKind;
   label: string;
   /** `local` presets: the runner block of `model.runners`. */
   runner?: string;
@@ -219,9 +225,13 @@ export function isBotId(id: string): boolean {
   return BOT_ID_PATTERN.test(id);
 }
 
-/** Default privacy and autoFallback by kind: `local` is local and may be a fallback; `acp` is cloud and is never a fallback unless set. */
+/**
+ * Default privacy and autoFallback by kind: `local` is local and may be a fallback; `acp` and `custom` are cloud and are never a
+ * fallback unless set. An absent kind is `local` (the schema default); an unknown kind is kept as given so `validateBotsDoc` reports it
+ * (and `presetProblem` refuses it at use).
+ */
 export function presetFromDoc(p: Obj): PresetConfig {
-  const kind = (p["kind"] === "acp" ? "acp" : "local") as PresetKind;
+  const kind = (p["kind"] === undefined ? "local" : p["kind"]) as WebPresetKind;
   const out: PresetConfig = {
     id: String(p["id"]),
     kind,
@@ -229,7 +239,7 @@ export function presetFromDoc(p: Obj): PresetConfig {
     modelId: String(p["modelId"] ?? ""),
     contextWindow: typeof p["contextWindow"] === "number" ? p["contextWindow"] : 8192,
     maxTokens: typeof p["maxTokens"] === "number" ? p["maxTokens"] : 4096,
-    privacy: (p["privacy"] === "cloud" || p["privacy"] === "local" ? p["privacy"] : kind === "acp" ? "cloud" : "local") as Privacy,
+    privacy: (p["privacy"] === "cloud" || p["privacy"] === "local" ? p["privacy"] : kind === "acp" || kind === "custom" ? "cloud" : "local") as Privacy,
     autoFallback: typeof p["autoFallback"] === "boolean" ? p["autoFallback"] : kind === "local",
   };
   if (typeof p["runner"] === "string") out.runner = p["runner"];
@@ -411,6 +421,14 @@ export function validateBotsDoc(doc: Readonly<Obj>, ctx: BotsCheckContext): Bots
     const billing = (presetDocs[i] as Obj | undefined)?.["billing"];
     if (billing !== undefined && billing !== "paid" && billing !== "subscription") issues.push(`${at}.billing: must be "paid" or "subscription"`);
     if (p.billing === "paid" && p.kind !== "acp") issues.push(`${at}.billing: only a preset reached through the proxy can be a paid route`);
+    if (p.kind === "custom") {
+      issues.push(`${at}.kind: custom providers are managed on the web Models page`);
+      return;
+    }
+    if (!(WEB_PRESET_KINDS as readonly string[]).includes(p.kind)) {
+      issues.push(`${at}.kind: unknown kind "${String(p.kind)}" (expected ${PRESET_KINDS.join(" or ")})`);
+      return;
+    }
     if (p.kind === "acp") {
       if (p.baseUrl === undefined) issues.push(`${at}.baseUrl: an acp preset needs the proxy URL (http://127.0.0.1:<port>/v1)`);
       else if (!isLoopbackHttp(p.baseUrl)) issues.push(`${at}.baseUrl: must be an http URL on 127.0.0.1 or localhost: ${p.baseUrl}`);

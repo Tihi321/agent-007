@@ -26,13 +26,15 @@ export interface ModelEndpoint {
   /** M2: a paid route (billed per use). The API-key refusal of MA2 does not apply to it; its spending cap does. */
   paid?: boolean | undefined;
   label: string;
+  /** I60: checked before EVERY request (custom cloud sources: https + `checkUrl`). A returned string is a refusal: the link counts as `down` and the chain falls to the next preset. */
+  preflight?: (() => Promise<string | undefined>) | undefined;
 }
 
 export interface OpenAiEngineOptions {
   /** The endpoint for a preset id of the bot's route, or undefined when it cannot be served. */
   endpoint(presetId: string): ModelEndpoint | undefined;
   status?: ProxyStatus;
-  fetch?: (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; headers: { get(n: string): string | null }; text(): Promise<string>; body: ReadableStream<Uint8Array> | null }>;
+  fetch?: (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal; redirect?: "error" }) => Promise<{ ok: boolean; status: number; headers: { get(n: string): string | null }; text(): Promise<string>; body: ReadableStream<Uint8Array> | null }>;
   maxToolRounds?: number;
   /** Called with a content-free line for the host log (never a prompt or a reply). */
   log?: (line: string) => void;
@@ -74,14 +76,26 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
       ...(tools.length > 0 ? { tools: tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
     };
     let res: Awaited<ReturnType<typeof doFetch>>;
+    if (ep.preflight) {
+      let refusal: string | undefined;
+      try {
+        refusal = await ep.preflight();
+      } catch {
+        refusal = "the address check failed";
+      }
+      if (refusal !== undefined) throw new Failed(failureOf("down")); // the fixed "not reachable" notice; the reason is never shown to the chat
+    }
     try {
       res = await doFetch(`${ep.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
         method: "POST",
         headers: { "content-type": "application/json", ...(ep.apiKey ? { authorization: `Bearer ${ep.apiKey}` } : {}) },
         body: JSON.stringify(body),
         signal,
+        // A custom endpoint passed the address preflight; a redirect would bypass it, so it fails as "down" (next chain link).
+        ...(ep.preflight ? { redirect: "error" as const } : {}),
       });
     } catch (e) {
+      if (ep.preflight && !signal.aborted) throw new Failed(failureOf("down"));
       throw new Failed(classifyThrown(e, { callerAborted: signal.aborted }));
     }
     if (!res.ok) {
