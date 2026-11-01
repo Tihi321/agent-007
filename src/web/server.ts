@@ -281,7 +281,11 @@ export async function startGateway(o: GatewayOptions): Promise<RunningGateway> {
     let body: unknown = {};
     if (method === "POST") {
       const b = await readJsonBody(req, undefined, o.bodyTimeoutMs);
-      if (!b.ok) return sendJson(res, b.status, { error: "bad_body", message: b.reason });
+      if (!b.ok) {
+        // answer, then drop the connection: the rest of a slow or oversized body is not read
+        res.once("finish", () => req.destroy());
+        return sendJson(res, b.status, { error: "bad_body", message: b.reason }, { Connection: "close" });
+      }
       body = b.value;
     }
     const ctx: RouteCtx = {

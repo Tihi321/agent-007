@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { derivedPresets } from "../agent/multibot.js";
-import { parseBots } from "../bots/schema.js";
+import { parseBots, termsOf } from "../bots/schema.js";
 import type { PresetConfig, TermsAccepted } from "../bots/schema.js";
 import { loadConfig } from "../config/load.js";
 import type { Config } from "../config/schema.js";
@@ -116,7 +116,7 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
   const { config, settings } = loadConfig({ configPath: cli.configPath, secrets });
   const bots = parseBots(settings.security, { folderAllow: config.folders.allow, derivedPresets: derivedPresets(config), defaultPreset: ((settings.security?.["model"] ?? {}) as { defaultPreset?: string }).defaultPreset ?? config.model.runner });
   const presets: PresetConfig[] = bots.presets;
-  const terms: TermsAccepted = bots.termsAccepted;
+  const terms: TermsAccepted = termsOf(bots);
   const redact = createRedactor(secretValues(secrets));
   const dataDir = config.paths.dataDir;
   const audit = createWebAudit({ dir: webPaths(dataDir).auditDir, redact });

@@ -201,6 +201,9 @@ type Obj = Record<string, unknown>;
 const isObj = (v: unknown): v is Obj => typeof v === "object" && v !== null && !Array.isArray(v);
 const strings = (v: unknown): string[] => (Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
 
+/** The loaded acknowledgments, read only (the web gateway reads them through this, so only this file names the key). */
+export const termsOf = (r: Pick<ResolvedBots, "termsAccepted">): TermsAccepted => r.termsAccepted;
+
 export function isBotId(id: string): boolean {
   return BOT_ID_PATTERN.test(id);
 }

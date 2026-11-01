@@ -67,7 +67,6 @@ export function readJsonBody(req: IncomingMessage, limit = BODY_LIMIT, timeoutMs
     // a body that drips in slowly cannot hold a connection open (the request timeout is off for SSE)
     const timer = setTimeout(() => {
       finish({ ok: false, status: 408, reason: "body too slow" });
-      req.destroy();
     }, timeoutMs);
     const finish = (r: BodyResult): void => {
       if (done) return;
@@ -79,7 +78,6 @@ export function readJsonBody(req: IncomingMessage, limit = BODY_LIMIT, timeoutMs
       size += c.length;
       if (size > limit) {
         finish({ ok: false, status: 413, reason: "body too large" });
-        req.destroy();
         return;
       }
       chunks.push(c);
