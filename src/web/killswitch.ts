@@ -15,7 +15,8 @@ export interface KillSwitchWatch {
   stop(): void;
 }
 
-export function watchKillSwitch(o: { controlDir: string; sessions: SessionManager; audit: WebAudit; intervalMs?: number }): KillSwitchWatch {
+/** `onTrip`: called once per trip after the sessions end, so the gateway stops every running turn (L3). */
+export function watchKillSwitch(o: { controlDir: string; sessions: SessionManager; audit: WebAudit; intervalMs?: number; onTrip?: () => void }): KillSwitchWatch {
   const flag = killSwitchFlagPath(o.controlDir);
   const check = (): boolean => {
     try {
@@ -33,6 +34,11 @@ export function watchKillSwitch(o: { controlDir: string; sessions: SessionManage
       n = o.sessions.revokeAll();
     } catch {
       /* an unreadable session store already refuses every session (I55) */
+    }
+    try {
+      o.onTrip?.();
+    } catch {
+      /* the lockdown stands even if a turn could not be stopped */
     }
     try {
       o.audit.write({ kind: "lockdown", detail: { via: "killswitch", sessions: n } });

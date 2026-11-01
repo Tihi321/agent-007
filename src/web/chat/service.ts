@@ -201,9 +201,28 @@ export class ChatService {
     return true;
   }
 
-  /** Stops every running turn of a user (sign-out everywhere, disable, delete). */
-  stopAllFor(userId: string): void {
-    for (const run of this.#runs.values()) if (run.userId === userId && !run.done) run.abort.abort();
+  /** Stops every running turn of a user (sign-out everywhere, disable, delete) and drops their runtime bots. Returns the turns stopped. */
+  stopAllFor(userId: string): number {
+    let n = 0;
+    for (const run of this.#runs.values())
+      if (run.userId === userId && !run.done) {
+        run.abort.abort();
+        n++;
+      }
+    this.registry.unregisterUser(userId);
+    return n;
+  }
+
+  /** Stops every running turn of every user (kill switch, lockdown) (L3). Returns the turns stopped. */
+  stopAll(): number {
+    let n = 0;
+    for (const run of this.#runs.values())
+      if (!run.done) {
+        run.abort.abort();
+        n++;
+      }
+    for (const b of this.registry.all()) this.registry.unregister(b.runtimeId);
+    return n;
   }
 
   #startRun(userId: string, botId: string, threadId: string, bot: RuntimeUserBot, tagline: string, userText: string): TurnRun {

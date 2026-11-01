@@ -65,11 +65,22 @@ export class UserAdmin {
   readonly #now: () => number;
   readonly #pending = new Map<string, PendingInvite>();
   readonly #knownPresets: (() => readonly string[]) | undefined;
+  readonly #onUserRevoked: ((userId: string) => void) | undefined;
 
-  constructor(stack: WebStack, opts: { now?: () => number; knownPresets?: () => readonly string[] } = {}) {
+  /** `onUserRevoked`: called when a user is disabled or deleted, after the sessions end, so the gateway stops their running turns (L3). */
+  constructor(stack: WebStack, opts: { now?: () => number; knownPresets?: () => readonly string[]; onUserRevoked?: (userId: string) => void } = {}) {
     this.#s = stack;
     this.#now = opts.now ?? Date.now;
     this.#knownPresets = opts.knownPresets;
+    this.#onUserRevoked = opts.onUserRevoked;
+  }
+
+  #revoked(userId: string): void {
+    try {
+      this.#onUserRevoked?.(userId);
+    } catch {
+      /* stopping a turn never blocks the disable */
+    }
   }
 
   #actor(userId: string): Actor {
@@ -327,6 +338,7 @@ export class UserAdmin {
       u.disabledAt = this.#now();
     });
     const n = this.#s.sessions.revokeUser(id);
+    this.#revoked(id);
     this.#s.audit.write({ kind: "user_change", user: actorId, detail: { target: id, change: "disabled", sessions: n } });
   }
 
@@ -358,6 +370,7 @@ export class UserAdmin {
 
   #purge(id: string): void {
     this.#s.sessions.revokeUser(id);
+    this.#revoked(id);
     const root = userPaths(this.#s.paths.usersDir.replace(/[\\/]users$/, ""), id).root;
     if (existsSync(root)) rmSync(root, { recursive: true, force: true });
     this.#s.credentials.update((d) => {

@@ -27,7 +27,8 @@ export async function guarded(fn: () => Promise<RouteResult> | RouteResult): Pro
   }
 }
 
-export function authRoutes(stack: WebStack): Record<string, RouteDef> {
+/** `hooks.onLockdown`: called after an owner lockdown ends every session, so the gateway stops every running turn (L3). */
+export function authRoutes(stack: WebStack, hooks: { onLockdown?: () => void } = {}): Record<string, RouteDef> {
   const { auth, sessions } = stack;
   const loggedIn = (r: Awaited<ReturnType<typeof auth.loginPassword>>, extra: Record<string, unknown> = {}): RouteResult => ({
     status: 200,
@@ -137,6 +138,7 @@ export function authRoutes(stack: WebStack): Record<string, RouteDef> {
       stepUp: true,
       handler: async (c) => {
         const n = sessions.revokeAll();
+        hooks.onLockdown?.();
         stack.audit.write({ kind: "lockdown", ...(c.session ? { user: c.session.userId } : {}), detail: { sessions: n, via: "web" } });
         return { status: 200, body: { ok: true, ended: n }, headers: { "Set-Cookie": clearCookie() } };
       },

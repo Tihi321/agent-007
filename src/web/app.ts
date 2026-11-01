@@ -84,9 +84,10 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     { host: "127.0.0.1", port: o.port, audit: stack.audit },
     { mode: o.mode, loadStores: () => stack.loadStores(), ...(o.serveStatus ? { serveStatus: o.serveStatus } : {}), ...(o.clockSkewMs ? { clockSkewMs: o.clockSkewMs } : {}) },
   );
-  const admin = new UserAdmin(stack, { now, knownPresets: () => o.presets().map((p) => p.id) });
   const scheduler = o.scheduler ?? new TurnScheduler({ slots: 1, now });
   const chat = new ChatService({ dataDir: o.dataDir, audit: stack.audit, users: stack.users, presets: o.presets, terms: o.terms, scheduler, engine: o.engine, approvals: new ApprovalBroker(stack.audit, { now }), now, ...(o.keepRunMs !== undefined ? { keepRunMs: o.keepRunMs } : {}) });
+  // L3: disabling or deleting a user, the kill switch and the owner lockdown also stop the running turns, not only the sessions
+  const admin = new UserAdmin(stack, { now, knownPresets: () => o.presets().map((p) => p.id), onUserRevoked: (id) => void chat.stopAllFor(id) });
   admin.sweepDisabled();
   const sweep = setInterval(() => {
     try {
@@ -102,7 +103,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     const u = recordFor(stack.users.read().users, userId);
     return u && u.status === "active" ? { caps: u.caps } : undefined;
   };
-  const watch = o.controlDir ? watchKillSwitch({ controlDir: o.controlDir, sessions: stack.sessions, audit: stack.audit }) : undefined;
+  const watch = o.controlDir ? watchKillSwitch({ controlDir: o.controlDir, sessions: stack.sessions, audit: stack.audit, onTrip: () => void chat.stopAll() }) : undefined;
   const gateway = await startGateway({
     host: "127.0.0.1",
     port: o.port,
@@ -111,7 +112,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     sessions: stack.sessions,
     identify,
     admit: admin.admit,
-    routes: { ...authRoutes(stack), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin) },
+    routes: { ...authRoutes(stack, { onLockdown: () => void chat.stopAll() }), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin) },
     ...(assets ? { assets } : {}),
     now,
     ...(watch ? { lockedDown: watch.lockedDown } : {}),

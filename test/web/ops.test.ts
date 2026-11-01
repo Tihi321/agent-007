@@ -7,7 +7,7 @@ import { test } from "node:test";
 import { SHELL_DISABLED_FLAG } from "../../src/approval/killSwitch.js";
 import { startWebApp } from "../../src/web/app.js";
 import { endpointResolver, parseWebCli } from "../../src/web/main.js";
-import { PRESETS, ScriptedEngine, freePort, makeApp, until, wait } from "./app.js";
+import { BOT, PRESETS, ScriptedEngine, freePort, makeApp, until, wait } from "./app.js";
 import { http } from "./helpers.js";
 import { tempDir } from "../settings/helpers.js";
 
@@ -88,4 +88,64 @@ test("a start with a Funnel entry, a foreign serve target or a corrupt store is 
   );
   void until;
   void wait;
+});
+
+/** L3: a turn that runs until it is aborted (or 3 s pass), so a test can see whether something stopped it. */
+const hangingEngine = () =>
+  new ScriptedEngine(async (t) => {
+    t.emit({ type: "delta", text: "thinking" });
+    const end = Date.now() + 3000;
+    while (!t.signal.aborted && Date.now() < end) await wait(5);
+    return { stopReason: t.signal.aborted ? "aborted" : "stop" };
+  });
+
+async function runningTurn(t: Awaited<ReturnType<typeof makeApp>>, who: Parameters<typeof t.post>[0] & { userId: string }) {
+  const bot = (await t.post(who, "/api/bots/create", BOT)).json().bot.id as string;
+  const sent = await t.post(who, "/api/chat/send", { bot, text: "hello" });
+  assert.equal(sent.status, 200, sent.text);
+  const thread = sent.json().threadId as string;
+  await until(() => t.engine.running > 0);
+  return { thread, stopped: () => until(() => t.app.chat.run(who.userId, thread)?.done === true, 1500) };
+}
+
+test("L3: disabling a user stops that user's running turn at once (not only the session)", async () => {
+  const t = await makeApp({ engine: hangingEngine() });
+  try {
+    const alice = await t.addUser("alice@example.com");
+    const r = await runningTurn(t, alice);
+    t.app.admin.disableUser(t.owner.userId, alice.userId);
+    await r.stopped();
+    assert.equal(t.app.chat.run(alice.userId, r.thread)!.events.at(-1)!.ev.type, "done");
+    assert.equal((t.app.chat.run(alice.userId, r.thread)!.events.at(-1)!.ev as { stopReason: string }).stopReason, "aborted");
+    assert.equal(t.app.chat.registry.forUser(alice.userId).length, 0, "the runtime bots are dropped");
+  } finally {
+    await t.close();
+  }
+});
+
+test("L3: the kill switch flag stops every running turn", async () => {
+  const control = tempDir("a7-control-");
+  const t = await makeApp({ engine: hangingEngine(), controlDir: control });
+  try {
+    const alice = await t.addUser("alice@example.com");
+    const r = await runningTurn(t, alice);
+    writeFileSync(join(control, SHELL_DISABLED_FLAG), "x");
+    await http(t.port, "GET", "/api/me", { host: `localhost:${t.port}`, headers: { cookie: t.owner.cookie } }); // the next request trips it at once
+    await r.stopped();
+  } finally {
+    await t.close();
+  }
+});
+
+test("L3: the owner lockdown route stops every running turn", async () => {
+  const t = await makeApp({ engine: hangingEngine() });
+  try {
+    const alice = await t.addUser("alice@example.com"); // also leaves the owner with a fresh step-up
+    const r = await runningTurn(t, alice);
+    const res = await t.post(t.owner, "/api/admin/lockdown", {});
+    assert.equal(res.status, 200, res.text);
+    await r.stopped();
+  } finally {
+    await t.close();
+  }
 });
