@@ -13,7 +13,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { PRESET_ID_PATTERN } from "../../bots/schema.js";
-import { BUILTIN_SOURCE_IDS, MODEL_ID_PATTERN, SOURCE_ID_PATTERN } from "../../models/sources.js";
+import { BUILTIN_SOURCE_IDS, MODEL_ID_PATTERN, RESERVED_SOURCE_IDS, SOURCE_ID_PATTERN } from "../../models/sources.js";
 import { sha256Hex } from "../crypto.js";
 import { atomicWriteJson } from "../store.js";
 
@@ -92,7 +92,7 @@ function parseSource(v: unknown, i: number): StoredSource {
   if (!isObj(v)) throw new Error(`${at}: must be an object`);
   exactKeys(v, ["id", "label", "baseUrl", "hasKey"], ["billing", "treatAsCloud"], at);
   const id = text(v["id"], `${at}.id`, 2, 12);
-  if (!SOURCE_ID_PATTERN.test(id) || (BUILTIN_SOURCE_IDS as readonly string[]).includes(id)) throw new Error(`${at}.id: not a valid custom source id`);
+  if (!SOURCE_ID_PATTERN.test(id) || RESERVED_SOURCE_IDS.includes(id)) throw new Error(`${at}.id: not a valid custom source id`);
   const baseUrl = text(v["baseUrl"], `${at}.baseUrl`, 8, MAX_BASE_URL);
   let u: URL;
   try {
@@ -262,7 +262,7 @@ export class ModelsStore {
   write(models: ModelsFile, keys: KeysFile): string {
     const m = parseModelsFile(JSON.parse(JSON.stringify(models)));
     const k = parseKeysFile(JSON.parse(JSON.stringify(keys)));
-    for (const s of m.sources) if (s.hasKey !== (s.id in k.keys)) throw new Error(`source "${s.id}": hasKey does not match the stored keys`);
+    for (const s of m.sources) if (s.hasKey !== Object.hasOwn(k.keys, s.id)) throw new Error(`source "${s.id}": hasKey does not match the stored keys`);
     for (const id of Object.keys(k.keys)) if (!m.sources.some((s) => s.id === id)) throw new Error("keys: a key without a source");
     atomicWriteJson(this.#o.keysFile, k);
     atomicWriteJson(this.#o.modelsFile, m);

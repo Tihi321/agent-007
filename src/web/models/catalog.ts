@@ -304,7 +304,8 @@ export function createPresetCatalog(o: PresetCatalogOptions): PresetCatalog {
       case "strataApiKey":
         return o.secrets.strataApiKey;
       default: {
-        const sealed = store.readKeys()?.keys[source.id];
+        const sealedMap = store.readKeys()?.keys;
+        const sealed = sealedMap !== undefined && Object.hasOwn(sealedMap, source.id) ? sealedMap[source.id] : undefined;
         if (sealed === undefined) return undefined;
         try {
           return o.box.open(sealed, `webkey:${source.id}`);
@@ -359,9 +360,9 @@ export function createPresetCatalog(o: PresetCatalogOptions): PresetCatalog {
       reload(false);
       const base = state === "ok" ? (JSON.parse(JSON.stringify(stored)) as ModelsFile) : emptyModels();
       const sealedKeys: KeysFile = state === "ok" ? (store.readKeys() ?? emptyKeys()) : emptyKeys();
-      const keys: Record<string, string> = {};
+      const keys: Record<string, string> = Object.create(null) as Record<string, string>; // no prototype: a source id like "constructor" is a plain key
       for (const s of base.sources) {
-        const k = sealedKeys.keys[s.id];
+        const k = Object.hasOwn(sealedKeys.keys, s.id) ? sealedKeys.keys[s.id] : undefined;
         if (k !== undefined) keys[s.id] = k;
         s.hasKey = k !== undefined;
       }
@@ -378,11 +379,11 @@ export function createPresetCatalog(o: PresetCatalogOptions): PresetCatalog {
             const s = draft.doc.sources.find((x) => x.id === sourceId);
             if (s) s.hasKey = false;
           },
-          has: (sourceId) => sourceId in keys,
+          has: (sourceId) => Object.hasOwn(keys, sourceId),
         },
       };
       const result = fn(draft);
-      for (const s of draft.doc.sources) s.hasKey = s.id in keys;
+      for (const s of draft.doc.sources) s.hasKey = Object.hasOwn(keys, s.id);
       for (const id of Object.keys(keys)) if (!draft.doc.sources.some((s) => s.id === id)) delete keys[id];
       const sha256 = store.write(draft.doc, { v: 1, keys });
       o.audit.write({ kind: "models_saved", detail: { sha256 } }); // not swallowed: without the line the file would read as tampered

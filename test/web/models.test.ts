@@ -346,7 +346,21 @@ test("custom provider: SSRF, key secrecy, billing", async () => {
       return new Response(JSON.stringify({ data: [{ id: "m1" }, { id: "m2" }] }), { status: 200 });
     },
   });
-  const t = await makeApp({ models: env.models, realEngine: createOpenAiEngine({ endpoint: (id) => env.holder.catalog!.endpoint(id), log: (l) => logs.push(l) }) });
+  // the provider host is mapped to a local server that answers 307 to a second local server (the redirect target)
+  let targetHits = 0;
+  const hitServer = await fakeServer((_req, res) => {
+    targetHits++;
+    res.writeHead(200).end("{}");
+  });
+  const redirector = await fakeServer((_req, res) => res.writeHead(307, { location: `${hitServer.url}/v1/chat/completions` }).end());
+  const t = await makeApp({
+    models: env.models,
+    realEngine: createOpenAiEngine({
+      endpoint: (id) => env.holder.catalog!.endpoint(id),
+      log: (l) => logs.push(l),
+      fetch: (url, init) => globalThis.fetch(url.replace("https://api.example.test", redirector.url), init) as never,
+    }),
+  });
   const seen: string[] = [];
   const call = async (path: string, body: unknown = {}) => {
     const r = await t.post(t.owner, `/api/admin/models/${path}`, body);
@@ -398,6 +412,11 @@ test("custom provider: SSRF, key secrecy, billing", async () => {
     assert.equal(down.text, "local answer");
     assert.ok(down.notice, "the user is told the main model was not reachable");
     assert.equal(strata.chatRequests().length, 2);
+    // a redirect would bypass that check: the provider answers 307 to another server, the chat falls back and the target gets no request
+    env.dns.set("api.example.test", ["93.184.216.34"]);
+    assert.equal((await reply(plainBot)).text, "local answer");
+    assert.equal(targetHits, 0, "the redirect was not followed");
+    assert.equal(strata.chatRequests().length, 3);
 
     // the key is nowhere: no API answer, no store file, no audit line, no log, no stored chat
     const files = ["web/models.json", "web/model-keys.json"].map((f) => readFileSync(`${t.dir}/${f}`, "utf8"));
@@ -410,6 +429,8 @@ test("custom provider: SSRF, key secrecy, billing", async () => {
   } finally {
     await t.close();
     await strata.close();
+    await redirector.close();
+    await hitServer.close();
   }
 });
 

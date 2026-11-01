@@ -57,6 +57,47 @@ Send your bot a message. Commands: `/new`, `/stop`, `/status`, `/model`, `/perso
 `/applysettings`, `/killshell`; `/help` lists them. Every shell command and every job needs your approval in Telegram.
 The settings web UI is served by the job runner on loopback port 47008 (the job runner's IPC port is 47007).
 
+## Web gateway: the Models page
+
+Owner only: Admin -> Models (`#/admin/models`). Every change needs a fresh step-up. It manages the models of the **web**
+gateway; nothing here restarts anything.
+
+- **Sources:** ACP proxy (Codex, Antigravity, Claude), LM Studio, Strata, and **Add provider** for any OpenAI-compatible
+  base URL. Press **Fetch models** (only on press), tick the ones you want and **Add selected**, or **Add a model by its id**.
+  Fetched ids and labels are untrusted text; kind, privacy, provider and key come from the source, never from the fetched list.
+- **Where it is stored:** `<dataDir>\web\models.json` (presets and custom providers) and `<dataDir>\web\model-keys.json`
+  (provider API keys, sealed with the web key, never shown back or logged). Only the Models page writes them; if
+  `models.json` is changed by hand, all web presets are switched off with a banner until you save from the page again.
+- **Local or cloud:** only the literal hosts `127.0.0.1`, `[::1]` and `localhost` are local. Any other host is cloud (cloud
+  badge, your bots' messages go to that host). A loopback provider can be marked **Treat as cloud**; privacy only goes up.
+- **Billing:** proxy, LM Studio, Strata and loopback presets are "subscription". A cloud custom provider must declare
+  "Free or subscription" or "Paid per use" when added. A paid preset runs only after an owner grant in Admin -> Paid routes.
+- **Cloud custom URLs** must be `https` and pass the SSRF guard (no private, LAN, tailnet, loopback or link-local address),
+  at save, at fetch and before every chat request. A LAN LM Studio is not supported. The base URL cannot be edited: remove
+  the provider and add it again.
+- **Effect:** Models writes apply at once; `security.json` presets and `termsAccepted` are re-read within 10 s. An invalid
+  `security.json` keeps the last good view and shows a banner. The owner sees every preset; other users need the preset
+  in their caps (Admin -> user -> Models...). Removing a preset a bot uses answers with the list of bots; repeat with
+  confirmation to force it (the bots then fall back, and paid grants for it are deleted).
+- **Telegram:** bots there use only `security.json` presets. For a proxy, LM Studio or Strata preset click **Copy for
+  settings UI**, paste it into the settings UI Models form (port 47008), save and run `/applysettings`. Custom-provider
+  presets cannot go to Telegram.
+- **Claude and Antigravity** presets need `termsAccepted.<provider>` in the settings UI, else they are refused.
+- **LM Studio:** every downloaded chat model is listed (embeddings hidden), loaded ones are marked, and LM Studio loads
+  others on first use (turn on Just-in-Time loading; the first reply is slow). On a 401 add `lmStudioApiToken` to
+  `secrets.json`. The context shown is the loaded one, else 8192: set it to the context LM Studio loads the model with.
+
+Live check (not yet done; run in order, `yarn web:local`, proxy and LM Studio running):
+
+- [ ] UM1 sign in as owner at `http://127.0.0.1:47009`, open Admin -> Models.
+- [ ] UM2 ACP proxy -> Fetch: 3 Codex, 2 Antigravity, 13 Claude rows; `claude-sonnet`, `claude-opus` shown as existing.
+- [ ] UM3 LM Studio -> Fetch: all chat models, loaded one marked, no embeddings.
+- [ ] UM4 Tick one Codex, one Antigravity, one new Claude and one not-loaded LM Studio model; Add selected; check ids and context.
+- [ ] UM5 Without a restart, make a bot per new preset and send "Say hi in five words."; each answers.
+- [ ] UM6 Add provider: a loopback one (local badge) and, if you have a key, a cloud one with "Paid per use"; the key is never shown again and the paid bot is refused until Paid routes allows it.
+- [ ] UM7 Remove a preset a bot uses: the bot list appears; cancel.
+- [ ] UM8 Untick `termsAccepted.antigravity` in the settings UI; within 10 s the Models page shows "needs terms". Re-tick it.
+
 ## Scripts (`yarn <name>`)
 
 | Script | What it does |

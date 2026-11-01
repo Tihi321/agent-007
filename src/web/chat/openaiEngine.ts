@@ -34,7 +34,7 @@ export interface OpenAiEngineOptions {
   /** The endpoint for a preset id of the bot's route, or undefined when it cannot be served. */
   endpoint(presetId: string): ModelEndpoint | undefined;
   status?: ProxyStatus;
-  fetch?: (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal }) => Promise<{ ok: boolean; status: number; headers: { get(n: string): string | null }; text(): Promise<string>; body: ReadableStream<Uint8Array> | null }>;
+  fetch?: (url: string, init: { method: string; headers: Record<string, string>; body: string; signal: AbortSignal; redirect?: "error" }) => Promise<{ ok: boolean; status: number; headers: { get(n: string): string | null }; text(): Promise<string>; body: ReadableStream<Uint8Array> | null }>;
   maxToolRounds?: number;
   /** Called with a content-free line for the host log (never a prompt or a reply). */
   log?: (line: string) => void;
@@ -91,8 +91,11 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
         headers: { "content-type": "application/json", ...(ep.apiKey ? { authorization: `Bearer ${ep.apiKey}` } : {}) },
         body: JSON.stringify(body),
         signal,
+        // A custom endpoint passed the address preflight; a redirect would bypass it, so it fails as "down" (next chain link).
+        ...(ep.preflight ? { redirect: "error" as const } : {}),
       });
     } catch (e) {
+      if (ep.preflight && !signal.aborted) throw new Failed(failureOf("down"));
       throw new Failed(classifyThrown(e, { callerAborted: signal.aborted }));
     }
     if (!res.ok) {

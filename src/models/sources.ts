@@ -18,6 +18,8 @@ import type { AcpProvider, PresetConfig, Privacy } from "../bots/schema.js";
 export type SourceKind = "acp-proxy" | "lmstudio" | "strata" | "custom";
 /** Reserved: never a custom source id. */
 export const BUILTIN_SOURCE_IDS = ["acp-proxy", "lmstudio", "strata"] as const;
+/** Also never a custom source id: the built-in preset prefixes (so an id is not reused across privacy classes) and Object.prototype-like names. */
+export const RESERVED_SOURCE_IDS: readonly string[] = [...BUILTIN_SOURCE_IDS, "claude", "codex", "ag", "lms", "strata", "constructor", "prototype"];
 /** Custom source ids; also the preset id prefix. */
 export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9]{1,11}$/;
 /** The proxy URL when no `acp` preset names one. */

@@ -131,7 +131,7 @@ export async function renderModels(ctx) {
       ),
       h("h3", {}, "Presets from this source"),
       presetList(s),
-      h("p", { class: "muted small" }, "These presets are for the web app. Telegram bots use only the presets of the settings UI (port 47007): use \"Copy for settings UI\" on a preset and paste it there."),
+      h("p", { class: "muted small" }, "These presets are for the web app. Telegram bots use only the presets of the settings UI (port 47008): use \"Copy for settings UI\" on a preset and paste it there."),
     );
     if (f && !f.error) drawTable();
   }
@@ -274,7 +274,7 @@ export async function renderModels(ctx) {
   async function copy(p) {
     try {
       await globalThis.navigator.clipboard.writeText(p.copyJson);
-      note(true, "Copied. Paste it into the Models form of the settings UI (port 47007), then apply the settings.");
+      note(true, "Copied. Paste it into the Models form of the settings UI (port 47008), then apply the settings.");
     } catch {
       st.copied = p.id; // no clipboard access: show the text to copy by hand
       note(false, "Could not use the clipboard. Copy the text shown under the preset.");

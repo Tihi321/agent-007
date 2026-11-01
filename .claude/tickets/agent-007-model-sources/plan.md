@@ -1,6 +1,6 @@
 # Model sources: every ACP proxy model, LM Studio, custom OpenAI-compatible providers, fetch-and-tick
 
-Status: IMPLEMENTING on branch `agent-007-model-sources` (from master 37102df), approved 2026-11-01. Repo `C:\projects\Personal\agent-007`, base `master` 37102df. Research: `research.md` (this folder).
+Status: IMPLEMENTED (agent checks done; UM1-UM8 pending) on branch `agent-007-model-sources` (from master 37102df), approved 2026-11-01. Repo `C:\projects\Personal\agent-007`, base `master` 37102df. Research: `research.md` (this folder).
 Parent plans: `.claude/tickets/agent-007-milestone2/plan.md` (I47 to I58, MA2, MA3, S38) and `.claude/tickets/agent-007-pi-durable-mvp/plan.md` (I25, I25d, I38 to I44). New IDs here continue from **I59** and use the prefix **MS** for tasks, **AC** for acceptance criteria, **R** for risks, **UM** for user steps.
 
 ## 0. Scope (one line)
@@ -254,3 +254,38 @@ Prerequisites: build done; api-acp-proxy running with Codex, Antigravity and Cla
 - **UM8** In the settings UI (47007) untick `termsAccepted.antigravity`, save; within 10 s the Models page shows the Antigravity preset as "needs terms" and a chat on it falls back. Re-tick it.
 
 Report back: which steps passed, any wrong context values, and the LM Studio version.
+
+Result (MS6, docs and verification part): README.md gained the section "Web gateway: the Models page" (before "Scripts"). `corepack yarn build` 0 errors; full `corepack yarn test` 1596 tests, 1595 pass, 0 fail, 1 skipped (baseline 1589, not lower). No flakes seen (driver.test.ts EPERM and redteam T8 passed in the full run, no rerun needed). Boundary tests passed: `only src/jobrunner/settingsUi/** and scripts/migrate-settings.ts import securityWriter` and `no agent-side file imports securityWriter ...`; `test/web/ui.test.ts` passed incl. `static: ... no innerHTML ...` and `I57: no innerHTML, ... in src/web or ui/web`. Security review and security fixes: see section 10.
+
+## 10. Results
+
+| Task | Status |
+|---|---|
+| MS1 | DONE (commit a022858) |
+| MS2 | DONE (19ccb4f) |
+| MS3 | DONE (16916dc) |
+| MS4 | DONE (d03436f) |
+| MS5 | DONE (9201236); UNTESTED in a browser |
+| MS6 | DONE (README, build, full tests, security review and fixes) |
+
+| AC | Status | Proof |
+|---|---|---|
+| AC1 | DONE | `classify: source decides, payload cannot` |
+| AC2 | DONE | `presetIdFor: valid, deterministic, collision-safe, existing ids reused` |
+| AC3 | DONE | `parsers: shapes, limits, embeddings hidden, codex normalised` |
+| AC4 | DONE | `owner fetch, tick, use; users need caps` |
+| AC5 | DONE | `custom provider: SSRF, key secrecy, billing` (chat success on a real https provider UNTESTED) |
+| AC6 | DONE | `remove in use` |
+| AC7 | DONE | `catalog reload and tamper` |
+| AC8 | DONE | assertion in `test/bots/config.test.ts` (`custom` kind refused); boundary test `only src/jobrunner/settingsUi/** and scripts/migrate-settings.ts import securityWriter` |
+| AC9 | DONE | build 0 errors; 1596 tests, 1595 pass, 1 skipped; `I57: no innerHTML ...` in `test/web/ui.test.ts` |
+| AC10 | NOT DONE (user step) | UM1 to UM8 |
+
+UM1 to UM8: NOT DONE (user step; checklist is in README.md "Web gateway: the Models page").
+
+Note: the Models page said port 47007 for the settings UI; fixed to 47008 in the MS6 commit.
+
+Security review (read-only reviewer over `37102df..d03436f -- src ui`): no high findings.
+- Fixed (MS6 commit): M1 chat requests to custom cloud providers followed redirects past the SSRF preflight -> `redirect: "error"` for endpoints with a preflight, a redirect is a `down` failure (assertion added to the AC5 test, verified non-vacuous); L2 a source id like `constructor` broke key bookkeeping -> `Object.hasOwn` / null-prototype maps; L4 custom source ids equal to a built-in preset prefix could reuse a removed preset id across privacy classes -> `RESERVED_SOURCE_IDS` (`claude`, `codex`, `ag`, `lms`, `strata`, `constructor`, `prototype` plus the built-in ids).
+- Not fixed (left for the user): L3 a preset on a paid source can be set to subscription by the owner (by design: per-preset billing is owner-editable with step-up); L5 `isBlockedV6` misses IPv4-compatible `::/96` and site-local `fec0::/10` (existing `ssrf.ts`, out of scope); L6 loopback custom sources skip `checkUrl`/`BLOCKED_PORTS` (owner only, by design D9); L7 DNS rebinding residual (R2, documented); the custom key is not in the gateway redactor (no logging path found).
+After fixes: build 0 errors; full suite 1596 tests, 1595 pass, 0 fail, 1 skipped.
