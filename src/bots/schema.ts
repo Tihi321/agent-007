@@ -310,10 +310,12 @@ export function parseBots(security: Readonly<Obj> | undefined, ctx: BotsParseCon
   };
   const botsDoc = doc["bots"];
   if (!isObj(botsDoc)) {
+    // N1: no `bots` key skips validateBotsDoc, so the Telegram main is kept off paid routes here (I58)
+    const free = presets.filter((p) => !isPaidPreset(p)).map((p) => p.id);
     const main: BotConfig = {
       description: "The main agent",
       telegramTokenRef: MAIN_BOT_ID,
-      route: { primary: ctx.defaultPreset, allowed: presets.map((p) => p.id), fallback: [], onAuthRequired: "fallback" },
+      route: { primary: free.includes(ctx.defaultPreset) ? ctx.defaultPreset : (free[0] ?? ctx.defaultPreset), allowed: free, fallback: [], onAuthRequired: "fallback" },
       tools: [...MAIN_DEFAULT_TOOLS],
       readRoots: ctx.folderAllow.map((f) => ({ ...f })),
       cloudSafeRoots: [],

@@ -57,3 +57,5 @@ You cannot read anyone's chats. The audit (Admin, owner only) holds ids, lengths
 - Another process on this PC can imitate the serve headers; it still needs a password + code or a passkey (accepted, T3).
 - Passkeys use a small verifier written for this project (ES256, no attestation). Review it before relying on passkeys alone.
 - The web chat uses the model endpoints directly instead of the Telegram agent's Harness, so a web turn is not durable across a gateway restart: the thread is kept, the unfinished answer is not.
+
+- Changes to presets, billing marks (`"billing": "paid"`) and `termsAccepted` take effect only after restarting `npm run web`.

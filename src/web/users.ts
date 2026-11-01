@@ -66,9 +66,11 @@ export class UserAdmin {
   readonly #pending = new Map<string, PendingInvite>();
   readonly #knownPresets: (() => readonly string[]) | undefined;
   readonly #onUserRevoked: ((userId: string) => void) | undefined;
+  readonly #dropPaid: ((userId: string) => void) | undefined;
 
   /** `onUserRevoked`: called when a user is disabled or deleted, after the sessions end, so the gateway stops their running turns (L3). */
-  constructor(stack: WebStack, opts: { now?: () => number; knownPresets?: () => readonly string[]; onUserRevoked?: (userId: string) => void } = {}) {
+  constructor(stack: WebStack, opts: { now?: () => number; knownPresets?: () => readonly string[]; onUserRevoked?: (userId: string) => void; dropPaid?: (userId: string) => void } = {}) {
+    this.#dropPaid = opts.dropPaid;
     this.#s = stack;
     this.#now = opts.now ?? Date.now;
     this.#knownPresets = opts.knownPresets;
@@ -406,6 +408,7 @@ export class UserAdmin {
   #purge(id: string): void {
     this.#s.sessions.revokeUser(id);
     this.#revoked(id);
+    this.#dropPaid?.(id); // N5: a deleted user keeps no paid grant
     const root = userPaths(this.#s.paths.usersDir.replace(/[\\/]users$/, ""), id).root;
     if (existsSync(root)) rmSync(root, { recursive: true, force: true });
     this.#s.credentials.update((d) => {

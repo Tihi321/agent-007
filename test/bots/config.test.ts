@@ -310,3 +310,14 @@ test("M2 / I58: an owner Telegram bot cannot list a paid preset (only web bots h
   refused(doc({ ...paid, billing: "metered" }, "deepseek"), /billing/);
   assert.equal(check(doc({ ...ACP_CODEX, billing: "subscription" }, "codex")).ok, true);
 });
+
+test("N1: with no `bots` key a paid preset is not in the implicit main's allowed list and a switch to it is rejected", () => {
+  const doc = baseSecurity();
+  doc["presets"] = [...doc["presets"], { ...ACP_CLAUDE, id: "claude", billing: "paid" }];
+  doc["termsAccepted"] = { claude: true };
+  const parsed = parseBots(doc, ctxOf(doc));
+  const main = parsed.bots[0]!;
+  assert.ok(!main.route.allowed.includes("claude"));
+  const row = findRow(withRows(DEFAULT_ROWS, botRows(parsed)), parseSettingPath("bots.main.activePreset"))!;
+  assert.equal(row.classify!("lmstudio", "claude", { autoApplyCosmetic: false }), "reject");
+});

@@ -7,7 +7,7 @@
  * so nothing a web client typed can reach the owner's chat: the agent builds the text from a fixed template and drops any file that does
  * not parse exactly.
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { randomBytes } from "node:crypto";
 import { join } from "node:path";
 
@@ -73,11 +73,16 @@ export async function drainOwnerNotices(controlDir: string, send: (text: string)
     const p = join(dir, f);
     let n: OwnerNotice | undefined;
     try {
-      n = parseOwnerNotice(JSON.parse(readFileSync(p, "utf8")));
+      const st = statSync(p);
+      n = st.isFile() && st.size <= 4096 ? parseOwnerNotice(JSON.parse(readFileSync(p, "utf8"))) : undefined;
     } catch {
       n = undefined;
     }
-    rmSync(p, { force: true });
+    try {
+      rmSync(p, { force: true }); // a directory or locked file named like a notice must not stop the later ones
+    } catch {
+      /* skipped */
+    }
     if (n) notices.push(n);
   }
   const now = notices.slice(0, OWNER_NOTICES_PER_POLL);

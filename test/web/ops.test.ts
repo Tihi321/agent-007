@@ -192,3 +192,15 @@ test("L8: the gateway keeps only the model keys from secrets.json, never a Teleg
     assert.ok(!/telegramBotToken|botTokens|mirrorBotToken|ipcHmacKey|mcpTokens/.test(code), `src/web/${f} names an owner secret`);
   }
 });
+
+test("N3: a directory or oversized file named like a notice does not block later notices", async () => {
+  const { drainOwnerNotices, ownerNoticesDir, writeOwnerNotice } = await import("../../src/approval/ownerNotices.js");
+  const { mkdirSync, writeFileSync } = await import("node:fs");
+  const control = tempDir("a7-control-");
+  assert.ok(writeOwnerNotice(control, { kind: "web_lockout", scope: "login", minutes: 15 }));
+  mkdirSync(join(ownerNoticesDir(control), "0-deadbeef.json"));
+  writeFileSync(join(ownerNoticesDir(control), "1-deadbeef.json"), "x".repeat(10_000));
+  const sent: string[] = [];
+  await drainOwnerNotices(control, async (s) => void sent.push(s));
+  assert.equal(sent.length, 1);
+});

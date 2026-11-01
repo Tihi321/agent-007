@@ -14,7 +14,7 @@
  */
 import type { AllowRow } from "../settings/allowlist.js";
 import type { Classification } from "../settings/contracts.js";
-import { PRESET_ID_PATTERN } from "./schema.js";
+import { PRESET_ID_PATTERN, isPaidPreset } from "./schema.js";
 import type { PresetConfig, ResolvedBots } from "./schema.js";
 
 /** The vendor of a preset: the proxy provider for an acp preset, the runner for a local one. */
@@ -40,7 +40,7 @@ export function botRows(resolved: Pick<ResolvedBots, "bots" | "presets">): Allow
     telegram: false,
     classify: (before, after): Classification => {
       const to = typeof after === "string" ? byId.get(after) : undefined;
-      if (!to || !bot.route.allowed.includes(to.id)) return "reject";
+      if (!to || isPaidPreset(to) || !bot.route.allowed.includes(to.id)) return "reject"; // a Telegram bot never switches to a paid route
       const from = byId.get(typeof before === "string" ? before : bot.route.primary);
       if (!from) return "card"; // an unknown stored value: widening is assumed
       if (from.id === to.id) return "auto";

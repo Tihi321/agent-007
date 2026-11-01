@@ -92,7 +92,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
   const scheduler = o.scheduler ?? new TurnScheduler({ slots: 1, now });
   const chat = new ChatService({ dataDir: o.dataDir, audit: stack.audit, users: stack.users, presets: o.presets, terms: o.terms, scheduler, engine: o.engine, approvals: new ApprovalBroker(stack.audit, { now }), now, ...(o.keepRunMs !== undefined ? { keepRunMs: o.keepRunMs } : {}) });
   // L3: disabling or deleting a user, the kill switch and the owner lockdown also stop the running turns, not only the sessions
-  const admin = new UserAdmin(stack, { now, knownPresets: () => o.presets().map((p) => p.id), onUserRevoked: (id) => void chat.stopAllFor(id) });
+  const admin = new UserAdmin(stack, { now, knownPresets: () => o.presets().map((p) => p.id), onUserRevoked: (id) => void chat.stopAllFor(id), dropPaid: (id) => chat.paid.dropFor(id) });
   admin.sweepDisabled();
   const sweep = setInterval(() => {
     try {
