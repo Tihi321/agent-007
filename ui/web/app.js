@@ -23,7 +23,9 @@ export function start(env) {
     passkeys: false,
     role: "user",
     go: (hash) => {
-      if (location.hash === hash) route();
+      // Leave /claim and /invite for the app root so a reload lands in the app, not on those pages.
+      if (location.pathname !== "/") location.replace("/" + hash);
+      else if (location.hash === hash) route();
       else location.hash = hash;
     },
     replace: (hash) => env.replaceHash(hash),
@@ -64,8 +66,7 @@ export function start(env) {
     const hash = location.hash || "#/";
     const path = location.pathname;
     const parts = hash.replace(/^#\/?/, "").split("/");
-    if (path === "/claim" && !state.user) return ctx.mount(renderClaim(ctx));
-    if (path === "/invite" && !state.user) return ctx.mount(renderInvite(ctx, /code=([\w-]+)/.exec(hash + (location.search || ""))?.[1] || ""));
+    // Restore the session first: a reload on /claim or /invite must not hide a live session behind those forms.
     if (!state.user) {
       const me = await api.get("/api/me", { quiet: true });
       if (me.ok) {
@@ -73,6 +74,12 @@ export function start(env) {
         ctx.signedIn(me.data.user);
       }
     }
+    // The claim form exists only while no owner exists; otherwise go to the app (signed in) or the sign-in page.
+    if (path === "/claim") {
+      if (!state.user && !state.claimed) return ctx.mount(renderClaim(ctx));
+      return location.replace(state.user ? "/#/" : "/#/signin");
+    }
+    if (path === "/invite" && !state.user) return ctx.mount(renderInvite(ctx, /code=([\w-]+)/.exec(hash + (location.search || ""))?.[1] || ""));
     if (!state.user) {
       if (!state.claimed && state.local) return ctx.mount(renderClaim(ctx));
       return ctx.mount(renderSignIn(ctx));

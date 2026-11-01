@@ -159,7 +159,7 @@ export function renderClaim(ctx) {
       },
     },
     h("h1", {}, "Claim this agent"),
-    h("p", {}, "On this PC run ", h("code", {}, "npm run web-owner-code -- --data-dir <the agent data folder>"), " and enter the code it prints. This works only in a browser on the PC itself."),
+    h("p", {}, "On this PC run ", h("code", {}, "yarn web-owner-code --data-dir <the agent data folder>"), " and enter the code it prints. This works only in a browser on the PC itself."),
     field("One-time code", code),
     e,
     h("button", { class: "btn btn-primary", type: "submit" }, "Continue"),

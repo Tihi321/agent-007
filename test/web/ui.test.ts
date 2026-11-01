@@ -214,6 +214,15 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     second.location.hash = location.hash;
     await start(second.env);
     await until(() => /Say hello/.test(second.body.textContent) && /Hello/.test(second.body.textContent));
+    // the bug: a reload on /claim (owner exists, session alive) must go to the app root, not show the claim form
+    const third = envFor(t.port);
+    third.env.fetch = env.fetch;
+    third.location.pathname = "/claim";
+    let target = "";
+    (third.location as unknown as { replace: (u: string) => void }).replace = (u) => (target = u);
+    await start(third.env);
+    assert.equal(target, "/#/");
+    assert.doesNotMatch(third.body.textContent, /Claim this agent/);
     // account page and sign out
     location.hash = "#/account";
     await until(() => /Devices and sessions/.test(body.textContent));
