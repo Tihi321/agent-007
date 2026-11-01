@@ -2,7 +2,7 @@
  * A REAL job runner process for the Phase 2 integration tests (S15). It runs the production `startJobRunner` (single
  * instance lock, journal, audit, templates, manager, the IPC server on loopback) with one change: the Claude driver is built
  * by the production `createClaudeDriver` around the fake `claude` script (`test/jobrunner/claude/fakeClaude.js`) instead of the
- * real binary. Never run by `npm test` directly; `phase2-rig.ts` spawns it.
+ * real binary. Never run by `yarn test` directly; `phase2-rig.ts` spawns it.
  *
  *   node jobrunnerProcess.js <jobrunner.json>
  *

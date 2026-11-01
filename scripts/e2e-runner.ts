@@ -1,12 +1,12 @@
 /**
- * Manual `@runner` end-to-end suite (S6.2 done-check, S8.2). NOT part of `npm test`.
+ * Manual `@runner` end-to-end suite (S6.2 done-check, S8.2). NOT part of `yarn test`.
  *
  * The real startup sequence and the real Harness on a temp SQLite file, a FAKE Telegram API (nothing contacts
  * Telegram), and the REAL configured model runner, read like the smoke scripts do from
  * `%LOCALAPPDATA%\agent-007-dev\config.json` and `secrets.json` (`A7_DEV_DIR` overrides; `--runner lmstudio|strata`,
  * `--model <id>` as in the smoke scripts). Tokens stay in memory and are never printed.
  *
- *   npm run e2e:runner
+ *   yarn e2e:runner
  *
  * Checks (each prints `E2E <id> PASS|FAIL <reason>`; the exit code is 0 only if all pass):
  *   question, shell-approve, shell-deny, new-gated, restart-deadline, remember

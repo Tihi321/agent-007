@@ -9,7 +9,7 @@ so expect first-install rough edges and work through the acceptance checklists i
 
 ## Requirements
 
-- Windows 11, Node.js `>=24.14.0 <25` (the repo is developed with fnm), PowerShell 7 for the deploy scripts.
+- Windows 11, Node.js `>=24.14.0 <25` (the repo is developed with fnm) and Yarn 4 (`corepack enable`, the version is pinned in `packageManager`), PowerShell 7 for the deploy scripts.
 - A Telegram bot token from @BotFather and your numeric Telegram user id.
 - A local model runner on loopback: LM Studio (127.0.0.1:1234) or Strata (127.0.0.1:8080).
 - Optional: the `claude` CLI for Claude jobs, a DeepSeek key for DeepSeek jobs, the creative-hub MCP servers.
@@ -17,10 +17,10 @@ so expect first-install rough edges and work through the acceptance checklists i
 ## Build and test (no services needed)
 
 ```powershell
-npm ci
-npm run build           # tsc, then copies the settings UI assets
-npm test                # node --test over dist/test (one test is skipped without Windows developer mode)
-npm run check:adapter   # only src/pi/adapter.ts may import the Pi packages
+yarn install --immutable
+yarn build           # tsc, then copies the settings UI assets
+yarn test               # node --test over dist/test (one test is skipped without Windows developer mode)
+yarn check:adapter   # only src/pi/adapter.ts may import the Pi packages
 ```
 
 ## Install
@@ -44,7 +44,7 @@ Send your bot a message. Commands: `/new`, `/stop`, `/status`, `/model`, `/perso
 `/applysettings`, `/killshell`; `/help` lists them. Every shell command and every job needs your approval in Telegram.
 The settings web UI is served by the job runner on loopback port 47008 (the job runner's IPC port is 47007).
 
-## npm scripts
+## Scripts (`yarn <name>`)
 
 | Script | What it does |
 |---|---|

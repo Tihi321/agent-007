@@ -1,5 +1,5 @@
 /**
- * Boundary checks (P0.2 done-check, S1.0, S9.2). Run: `npm run check:adapter`.
+ * Boundary checks (P0.2 done-check, S1.0, S9.2). Run: `yarn check:adapter`.
  *
  * 1. Adapter check: only `src/pi/adapter.ts` may import the Pi packages (the whole earendil-works scope, which includes
  *    pi-mcp) or `typebox`. Everything else imports from the adapter.

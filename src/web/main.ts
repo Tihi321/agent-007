@@ -195,7 +195,7 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
       : {}),
   });
   out(`web gateway listening on http://127.0.0.1:${app.gateway.port} (${cli.mode})`);
-  if (!app.stack.auth.ownerExists()) out(`No owner yet: run "npm run web-owner-code -- --data-dir ${dataDir}" and open http://localhost:${app.gateway.port}/claim on this PC.`);
+  if (!app.stack.auth.ownerExists()) out(`No owner yet: run "yarn web-owner-code --data-dir ${dataDir}" and open http://localhost:${app.gateway.port}/claim on this PC.`);
   return {
     app,
     stop: async () => {
