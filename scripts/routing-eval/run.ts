@@ -14,7 +14,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import type { EntryRecord } from "../../src/pi/adapter.js";
 import { allEntries, ctx, errMessage, openRig } from "../smoke/common.js";
-import { checkRunnerReachable, isMain, loadSmokeRunner, parseArgs, repoRoot, unreachableOutcome } from "../smoke/config.js";
+import { checkProxyTarget, isMain, loadSmokeRunner, parseArgs, repoRoot, unreachableOutcome } from "../smoke/config.js";
 import type { SmokeRunnerConfig } from "../smoke/config.js";
 import { viewTranscript } from "../bakeoff/run.js";
 import { withTimeoutCompat } from "../bakeoff/util.js";
@@ -152,7 +152,7 @@ if (isMain(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
   const cfg = loadSmokeRunner(args);
   const label = typeof args.flags["label"] === "string" ? args.flags["label"] : cfg.modelId;
-  const reach = await checkRunnerReachable(cfg);
+  const reach = await checkProxyTarget(cfg);
   if (!reach.reachable) {
     console.log(`ROUTING-EVAL ${label} FAIL runner=${cfg.runner}: ${unreachableOutcome("ROUTING-EVAL", cfg, reach).reason}`);
     process.exitCode = 1;

@@ -14,7 +14,7 @@ import { viewTranscript } from "../bakeoff/run.js";
 import { withTimeoutCompat } from "../bakeoff/util.js";
 import type { RunResult } from "../bakeoff/cases.js";
 import { allEntries, ctx, errMessage, openRig } from "../smoke/common.js";
-import { checkRunnerReachable, isMain, loadSmokeRunner, parseArgs, repoRoot, unreachableOutcome } from "../smoke/config.js";
+import { checkProxyTarget, isMain, loadSmokeRunner, parseArgs, repoRoot, unreachableOutcome } from "../smoke/config.js";
 import type { SmokeRunnerConfig } from "../smoke/config.js";
 import { CASES, MAX_TOOL_CALLS, caseOf } from "./cases.js";
 import type { SettingsCase, SettingsResult } from "./cases.js";
@@ -145,7 +145,7 @@ if (isMain(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
   const cfg = loadSmokeRunner(args);
   const label = typeof args.flags["label"] === "string" ? args.flags["label"] : cfg.modelId;
-  const reach = await checkRunnerReachable(cfg);
+  const reach = await checkProxyTarget(cfg);
   if (!reach.reachable) {
     console.log(`SETTINGS-EVAL ${label} FAIL runner=${cfg.runner}: ${unreachableOutcome("SETTINGS-EVAL", cfg, reach).reason}`);
     process.exitCode = 1;

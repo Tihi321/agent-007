@@ -14,7 +14,7 @@
  */
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { checkRunnerReachable, isMain, loadSmokeRunner, parseArgs, repoRoot } from "../smoke/config.js";
+import { checkProxyTarget, isMain, loadSmokeRunner, parseArgs, repoRoot } from "../smoke/config.js";
 import { CASES, caseOf } from "./cases.js";
 import type { MultiCase } from "./cases.js";
 import { renderBlocked, renderMatrix, renderScoreMarkdown, scoreMulti } from "./score.js";
@@ -160,7 +160,7 @@ if (isMain(import.meta.url)) {
     if (args.flags["confirm-live"] !== true) fail = "live mode makes real model calls: pass --confirm-live to confirm (the user's go is required)";
     else {
       const cfg = loadSmokeRunner(args);
-      const reach = await checkRunnerReachable(cfg);
+      const reach = await checkProxyTarget(cfg);
       if (!reach.reachable) fail = `runner ${cfg.runner} at ${cfg.baseUrl} is not reachable`;
       else {
         run = { ...run, live: { baseUrl: cfg.baseUrl, apiKey: cfg.apiKey, modelId: cfg.modelId, contextWindow: cfg.contextWindow, maxTokens: cfg.maxTokens, streamTimeoutMs: cfg.streamTimeoutMs } };

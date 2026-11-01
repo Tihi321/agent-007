@@ -13,7 +13,7 @@
  */
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { checkRunnerReachable, isMain, loadSmokeRunner, parseArgs, repoRoot, unreachableOutcome } from "../smoke/config.js";
+import { checkProxyTarget, isMain, loadSmokeRunner, parseArgs, repoRoot, unreachableOutcome } from "../smoke/config.js";
 import type { SmokeRunnerConfig } from "../smoke/config.js";
 import { allEntries, ctx, entryHasToolCall, entryStopReason, entryText, errMessage, openRig } from "../smoke/common.js";
 import type { EntryRecord } from "../../src/pi/adapter.js";
@@ -193,7 +193,7 @@ if (isMain(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
   const cfg = loadSmokeRunner(args);
   const label = typeof args.flags["label"] === "string" ? args.flags["label"] : cfg.modelId;
-  const reach = await checkRunnerReachable(cfg);
+  const reach = await checkProxyTarget(cfg);
   if (!reach.reachable) {
     console.log(`BAKEOFF ${label} FAIL runner=${cfg.runner}: ${unreachableOutcome("BAKEOFF", cfg, reach).reason}`);
     process.exitCode = 1;
