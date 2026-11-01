@@ -75,7 +75,12 @@ export interface ProviderHealth {
   maxConcurrent?: number;
   /** `max_queue`, when the proxy sets `PROXY_MAX_QUEUE`. */
   maxQueue?: number;
+  /** MA2: how the provider is logged in (`providers.claude.auth_method` of an updated proxy). Absent on an older proxy. Never a secret. */
+  authMethod?: AuthMethod;
 }
+
+export const AUTH_METHODS = ["subscription", "oauth_token", "api_key", "none"] as const;
+export type AuthMethod = (typeof AUTH_METHODS)[number];
 
 export interface ProxyHealth {
   status: string;
@@ -114,6 +119,8 @@ export function parseHealth(body: unknown): ProxyHealth | undefined {
     if (queued !== undefined) h.queued = queued;
     if (cap !== undefined) h.maxConcurrent = cap;
     if (maxQueue !== undefined) h.maxQueue = maxQueue;
+    const am = q["auth_method"];
+    if (typeof am === "string" && (AUTH_METHODS as readonly string[]).includes(am)) h.authMethod = am as AuthMethod;
     providers.push(h);
   }
   const up = num(o["uptime_seconds"]);
@@ -216,6 +223,16 @@ export interface ProviderStatus {
   needsKeyFix: boolean;
   lastFailure?: string;
   lastFailureAt?: number;
+  /** MA2: the auth method the proxy last reported for this provider. */
+  authMethod?: AuthMethod;
+  /** MA2: the provider is refused ("needs attention", no calls) because its login is a per-token API key. */
+  refused?: boolean;
+}
+
+/** MA2: a provider whose proxy login is an API key is never called (billing per token; D12 revised, UI-46). Only `claude` is checked. */
+export function authRefusal(providerId: string, method: AuthMethod | undefined): string | undefined {
+  if (providerId.replace(/^acp-/, "") === "claude" && method === "api_key") return "the proxy's Claude login is an API key (billed per token): refused until the proxy uses the subscription login";
+  return undefined;
 }
 
 /**
@@ -237,6 +254,19 @@ export class ProxyStatus {
     if (failure.needsKeyFix) s.needsKeyFix = true;
     s.lastFailure = failure.message;
     s.lastFailureAt = this.#now();
+  }
+
+  /** MA2: record what `/healthz` said about a provider's login. */
+  noteAuthMethod(providerId: string, method: AuthMethod | undefined): void {
+    const s = this.#get(providerId.startsWith("acp-") ? providerId : `acp-${providerId}`);
+    if (method === undefined) delete s.authMethod;
+    else s.authMethod = method;
+    s.refused = authRefusal(s.providerId, method) !== undefined;
+  }
+
+  /** MA2: true when calls to this provider must not be made. */
+  refused(providerId: string): boolean {
+    return this.#byProvider.get(providerId.startsWith("acp-") ? providerId : `acp-${providerId}`)?.refused === true;
   }
 
   noteSuccess(providerId: string): void {

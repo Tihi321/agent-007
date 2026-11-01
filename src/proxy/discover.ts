@@ -8,8 +8,8 @@
  * redactor built from the key as a second line of defence.
  */
 import type { PresetConfig } from "../bots/schema.js";
-import { fetchHealth, fetchModelIds, proxyEndpoint } from "./health.js";
-import type { FetchLike, HealthResult, ModelsResult, ProviderHealth, ProxyEndpoint } from "./health.js";
+import { authRefusal, fetchHealth, fetchModelIds, proxyEndpoint } from "./health.js";
+import type { AuthMethod, FetchLike, HealthResult, ModelsResult, ProviderHealth, ProxyEndpoint } from "./health.js";
 
 export interface PresetAvailability {
   presetId: string;
@@ -18,6 +18,8 @@ export interface PresetAvailability {
   available: boolean;
   /** Why not (fixed sentence). */
   reason?: string;
+  /** MA2: set when the preset is refused because of the provider's login method ("needs attention"), not because the model is missing. */
+  needsAttention?: boolean;
 }
 
 /** The proxy lists Codex models both as `codex/<id>` and bare; every other provider only as `<provider>/<id>`. */
@@ -26,19 +28,20 @@ function normalize(providerId: string | undefined, id: string): string {
 }
 
 /** Compare the `acp` presets with the ids the proxy lists. Local presets are ignored. */
-export function matchPresets(presets: readonly Pick<PresetConfig, "id" | "kind" | "modelId" | "providerId">[], ids: readonly string[]): PresetAvailability[] {
+export function matchPresets(presets: readonly Pick<PresetConfig, "id" | "kind" | "modelId" | "providerId">[], ids: readonly string[], authMethods: Readonly<Record<string, AuthMethod | undefined>> = {}): PresetAvailability[] {
   const out: PresetAvailability[] = [];
   for (const p of presets) {
     if (p.kind !== "acp") continue;
     const providerId = p.providerId ?? "codex";
     const wanted = normalize(providerId, p.modelId);
     const found = ids.some((id) => normalize(providerId, id) === wanted);
+    const refusal = authRefusal(providerId, authMethods[providerId]);
     out.push({
       presetId: p.id,
       providerId,
       modelId: p.modelId,
-      available: found,
-      ...(found ? {} : { reason: "the proxy does not list this model id (not in the user's plan, or the id changed)" }),
+      available: found && refusal === undefined,
+      ...(refusal !== undefined ? { reason: refusal, needsAttention: true } : found ? {} : { reason: "the proxy does not list this model id (not in the user's plan, or the id changed)" }),
     });
   }
   return out;
@@ -55,6 +58,10 @@ export interface SetupReport {
   health: HealthResult;
   models: ModelsResult;
   presets: PresetAvailability[];
+  /** MA2: `auth_method` per provider as the proxy reported it; a provider missing here is an older proxy (a warning, not a block). */
+  authMethods: Record<string, AuthMethod>;
+  /** MA2: warnings (an older proxy that does not report `auth_method` for a provider the presets use). */
+  warnings: string[];
   /** Ids the proxy lists that no preset uses. */
   unusedModelIds: string[];
   /** True only when the proxy answered `/healthz`, the key was accepted, and every `acp` preset is available. */
@@ -81,12 +88,20 @@ export async function checkProxy(input: SetupCheckInput): Promise<SetupReport> {
     : { ok: false, reason: health.reason === "timeout" ? "timeout" : health.reason === "not_proxy" ? "not_proxy" : "down", failure: health.failure };
   const presets = input.presets ?? [];
   const ids = models.ok ? models.ids : [];
-  const matched = models.ok ? matchPresets(presets, ids) : matchPresets(presets, []).map((m) => ({ ...m, reason: "not checked: the model list could not be read" }));
+  const authMethods: Record<string, AuthMethod> = {};
+  if (health.ok) for (const p of health.health.providers) if (p.authMethod !== undefined) authMethods[p.id] = p.authMethod;
+  const warnings: string[] = [];
+  if (health.ok && presets.some((p) => p.kind === "acp" && p.providerId === "claude") && authMethods["claude"] === undefined) {
+    warnings.push("healthz does not report auth_method for claude (an older proxy): the login type cannot be verified; update the proxy (MA1)");
+  }
+  const matched = models.ok ? matchPresets(presets, ids, authMethods) : matchPresets(presets, []).map((m) => ({ ...m, reason: "not checked: the model list could not be read" }));
   return {
     endpoint,
     health,
     models,
     presets: matched,
+    authMethods,
+    warnings,
     unusedModelIds: models.ok ? unusedIds(presets, ids) : [],
     ok: health.ok && models.ok && matched.every((m) => m.available),
   };
@@ -130,7 +145,9 @@ export function formatSetupReport(r: SetupReport, redact: (s: string) => string 
   } else {
     lines.push("models: SKIPPED, the proxy was not reachable");
   }
-  for (const p of r.presets) lines.push(`preset ${p.presetId} (${p.providerId}/${p.modelId}): ${p.available ? "available" : `UNAVAILABLE, ${p.reason ?? "unknown"}`}`);
+  for (const p of r.presets) lines.push(`preset ${p.presetId} (${p.providerId}/${p.modelId}): ${p.available ? "available" : `${p.needsAttention ? "NEEDS ATTENTION" : "UNAVAILABLE"}, ${p.reason ?? "unknown"}`}`);
+  for (const [id, m] of Object.entries(r.authMethods)) lines.push(`healthz ${id} auth_method: ${m}`);
+  for (const w of r.warnings) lines.push(`warning: ${w}`);
   if (r.unusedModelIds.length > 0) lines.push(`ids the proxy lists that no preset uses: ${r.unusedModelIds.join(", ")}`);
   lines.push(r.ok ? "setup check: OK" : "setup check: NOT OK");
   return lines.map(redact);

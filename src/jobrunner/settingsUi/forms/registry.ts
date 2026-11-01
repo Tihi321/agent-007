@@ -10,6 +10,7 @@
 import { SECURITY_SCHEMA } from "../../../settings/schema.js";
 import type { Schema } from "../../../settings/jsonschema.js";
 import { JOBRUNNER_LIMITS_SCHEMA } from "./jobrunnerLimits.js";
+import { claudeFormTemplates } from "../../../models/templates.js";
 import { phase4Forms } from "./phase4.js";
 
 export interface FormDescriptor {
@@ -27,6 +28,8 @@ export interface FormDescriptor {
   ack?: { text: string };
   /** Sidebar group. */
   group?: string;
+  /** MA2: copyable JSON examples shown under the form (read-only text; the user pastes values into the fields). */
+  templates?: { label: string; target: string; json: string }[];
 }
 
 export class FormRegistry {
@@ -76,7 +79,7 @@ export function shippedForms(): FormRegistry {
   );
   r.register(securityForm("shell", "Shell and approvals", ["shell"], { group: "Access", description: "Every shell command still needs your tap in Telegram. If the kill switch flag is present, shell stays off whatever this says; delete the flag locally to re-enable it." }));
   r.register(securityForm("limits", "Tool limits", ["limits"], { group: "Access" }));
-  r.register(securityForm("models", "Model runners and presets", ["model", "presets"], { group: "Model", description: "Runner endpoints must be on this PC (127.0.0.1 or localhost). A persona can only pick one of the presets listed here. A preset of kind acp goes through the api-acp-proxy (also loopback) and counts as cloud; a per-token-billed API key is never a preset.", warnings: ["A claude or antigravity preset is refused until you tick its acknowledgment in the Terms form."] }));
+  r.register(securityForm("models", "Model runners and presets", ["model", "presets"], { group: "Model", description: "Runner endpoints must be on this PC (127.0.0.1 or localhost). A persona can only pick one of the presets listed here. A preset of kind acp goes through the api-acp-proxy (also loopback) and counts as cloud; a per-token-billed API key is never a preset.", warnings: ["A claude or antigravity preset is refused until you tick its acknowledgment in the Terms form."], templates: claudeFormTemplates() }));
   r.register(securityForm("mcp", "MCP servers and Flow", ["mcp", "flow"], { group: "Jobs", description: "creative-hub servers on this PC and the allowlist of their tools. Servers must be loopback URLs." }));
   r.register(securityForm("jobs", "Jobs (agent side)", ["jobs", "budgets"], { group: "Jobs", description: "Approval timeouts and the daily job ceiling for personas. The job runner's own limits are in the next form." }));
   r.register({

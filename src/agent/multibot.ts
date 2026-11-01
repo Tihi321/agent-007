@@ -51,6 +51,7 @@ import { FallbackEngine } from "../models/fallback.js";
 import { ModelSwitcher } from "../models/switch.js";
 import { checkProxy } from "../proxy/discover.js";
 import { toFallbackFailure } from "../proxy/errors.js";
+import type { AuthMethod } from "../proxy/health.js";
 import { DEFAULT_PROXY_PORT, ProxyStatus, fetchHealth, proxyEndpoint } from "../proxy/health.js";
 import type { FetchLike } from "../proxy/health.js";
 import { createProxyBrain } from "../proxy/provider.js";
@@ -225,6 +226,7 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
   // ---- the proxy brain -----------------------------------------------------------------------------------------------
   const acpPresets = resolved.presets.filter((p) => p.kind === "acp");
   let unavailable: ReadonlySet<string> | undefined;
+  let startAuth: Record<string, AuthMethod> = {};
   if (acpPresets.length > 0) {
     const first = acpPresets.find((p) => p.baseUrl !== undefined);
     try {
@@ -237,6 +239,7 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
       });
       // Only a proxy that answered and listed its models can say a preset is missing; a proxy that is down is handled per call.
       if (report.health.ok && report.models.ok) unavailable = new Set(report.presets.filter((p) => !p.available).map((p) => p.presetId));
+      startAuth = report.authMethods;
       log.info("proxy.checked", { ok: report.ok, health: report.health.ok, models: report.models.ok, unavailable: unavailable ? [...unavailable] : [] });
     } catch (e) {
       log.warn("proxy.check_failed", { error: e instanceof Error ? e.name : "error" });
@@ -258,6 +261,7 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
     priorityFor: (info: CallInfo) => (info.kind === "complete" ? 3 : hints.resolve(info.botId).priority),
     onFailure: (ev) => void onProxyFailure(ev),
   });
+  for (const [prov, m] of Object.entries(startAuth)) proxyStatus.noteAuthMethod(prov, m);
   proxyStatus.onSuccess = (providerId) => {
     for (const k of [...attempts.keys()]) if (k.includes(`|${providerId}|`)) attempts.delete(k);
     for (const p of parts.values()) for (const preset of resolved.presets) if (providerIdOf(preset) === providerId) p.fallback.succeeded(preset.id);
@@ -313,7 +317,7 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
   const presetUp = async (p: PresetConfig): Promise<boolean> => {
     if (p.kind === "local") return p.runner ? runnerUp(p.runner) : true;
     // a preset the proxy did not list at start-up is refused as a switch target (the start-up check, S23.1)
-    return !(unavailable?.has(p.id) ?? false) && !proxyStatus.needsLogin(providerIdOf(p));
+    return !(unavailable?.has(p.id) ?? false) && !proxyStatus.needsLogin(providerIdOf(p)) && !proxyStatus.refused(providerIdOf(p));
   };
 
   let mirror: BotRoomMirror | undefined;
@@ -547,6 +551,11 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
       if (h.ok) {
         const ps = h.health.providers.map((x) => `${x.id} active ${x.active ?? "?"}, queued ${x.queued ?? "?"}`);
         out.push(`Proxy: up${ps.length > 0 ? ` (${ps.join("; ")})` : ""}`);
+        for (const x of h.health.providers) {
+          proxy.status.noteAuthMethod(x.id, x.authMethod);
+          if (x.authMethod !== undefined) out.push(`${x.id} login: ${x.authMethod}`);
+          else if (x.id === "claude") out.push("claude login: not reported (older proxy)");
+        }
       } else out.push("Proxy: not reachable (the proxy is not running, or the main account is logged off)");
     } catch {
       out.push("Proxy: not checked");
@@ -555,6 +564,7 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
     for (const [prov, s] of Object.entries(proxy.limiters.stats())) out.push(`Proxy limiter ${prov}: ${s.active} of ${s.limit} running, ${s.queued} queued`);
     for (const s of proxy.status.snapshot()) {
       if (s.needsLogin) out.push(`${s.providerId} needs a login on the main account`);
+      if (s.refused) out.push(`${s.providerId}: needs attention, refused (the proxy login is an API key, not the subscription)`);
       if (s.needsKeyFix) out.push(`${s.providerId}: the proxy key in secrets.json was rejected`);
     }
     return out;

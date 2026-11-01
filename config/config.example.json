@@ -93,6 +93,11 @@
     "baseUrl": "http://127.0.0.1:8787/v1",
     "modelId": ""
   },
+  "_presets_claude": {
+    "_comment": "MA2. NOTHING reads this block: presets live in security.json (settings UI, Models form, which also shows these as templates). Claude through the proxy uses the SUBSCRIPTION login only; the setup check and /status refuse the preset when the proxy reports auth_method api_key. Set contextWindow and maxTokens by hand (U52). The Claude preset needs termsAccepted.claude, ticked only in the Terms form (I41). autoFallback stays false: Claude is a brain, never a fallback.",
+    "claude-sonnet": { "kind": "acp", "providerId": "claude", "modelId": "claude/sonnet", "baseUrl": "http://127.0.0.1:8787/v1", "apiKeyRef": "proxyApiKey", "privacy": "cloud", "autoFallback": false, "contextWindow": 200000, "maxTokens": 8192 },
+    "claude-opus": { "kind": "acp", "providerId": "claude", "modelId": "claude/opus", "baseUrl": "http://127.0.0.1:8787/v1", "apiKeyRef": "proxyApiKey", "privacy": "cloud", "autoFallback": false, "contextWindow": 200000, "maxTokens": 8192 }
+  },
   "_bots": {
     "_comment": "Phase 4 (S20). NOTHING reads this block: bots live in security.json, which only the settings UI writes (never config.json). It shows the ONE bot a new install has, main (the existing agent), to enter in the settings UI after you run scripts\\migrate-bots (it copies the Phase 1 to 3 state into bots\\main and leaves the old files). Without a bots section the install behaves exactly as before. More bots are added in the UI, each with its own token (deploy\\new-secrets.ps1 -Bots <id>), route, tool allowlist, folders (inside the folders above, never overlapping folders.deny) and edges. A bot with no edge has no ask_bot and no list_bots; at most one bot may have shell; a bot with a proxy preset in its route reads only its cloudSafeRoots unless you relax that in the UI.",
     "main": {
