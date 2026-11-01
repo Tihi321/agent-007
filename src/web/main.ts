@@ -15,7 +15,7 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { derivedPresets } from "../agent/multibot.js";
-import { parseBots, termsOf } from "../bots/schema.js";
+import { isPaidPreset, parseBots, termsOf } from "../bots/schema.js";
 import type { PresetConfig, TermsAccepted } from "../bots/schema.js";
 import { loadConfig } from "../config/load.js";
 import type { Config } from "../config/schema.js";
@@ -84,7 +84,7 @@ export function endpointResolver(config: Pick<Config, "model">, secrets: Pick<Se
     if (!p) return undefined;
     if (p.kind === "acp") {
       if (!p.baseUrl) return undefined;
-      return { baseUrl: p.baseUrl, apiKey: secrets.proxyApiKey, modelId: p.modelId, maxTokens: p.maxTokens, viaProxy: true, providerId: p.providerId, label: p.label };
+      return { baseUrl: p.baseUrl, apiKey: secrets.proxyApiKey, modelId: p.modelId, maxTokens: p.maxTokens, viaProxy: true, providerId: p.providerId, ...(isPaidPreset(p) ? { paid: true } : {}), label: p.label };
     }
     const runner = p.runner ? (config.model.runners as Record<string, { baseUrl: string } | undefined>)[p.runner] : undefined;
     if (!runner) return undefined;

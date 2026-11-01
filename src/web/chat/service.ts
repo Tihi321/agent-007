@@ -8,6 +8,7 @@
  */
 import { randomBytes } from "node:crypto";
 import { setTimeout as sleep } from "node:timers/promises";
+import { isPaidPreset } from "../../bots/schema.js";
 import type { PresetConfig, TermsAccepted } from "../../bots/schema.js";
 import type { WebAudit } from "../audit.js";
 import { bodyDigest } from "../crypto.js";
@@ -16,8 +17,12 @@ import type { Caps, UsersFile } from "../schemas.js";
 import type { JsonStore } from "../store.js";
 import { SchedulerAbortedError, SchedulerBusyError, TurnScheduler } from "../runtime/scheduler.js";
 import { buildUserToolbox } from "../runtime/tools.js";
+import { PaidRoutes } from "../runtime/paidRoutes.js";
+import { resolveTurnRoute, whyNot } from "../runtime/route.js";
+import type { ResolvedTurn, TurnRouteContext } from "../runtime/route.js";
 import { UserBotError, UserBotRegistry, UserBotStore } from "../runtime/userBots.js";
-import type { RuntimeUserBot } from "../runtime/userBots.js";
+import type { UserBotConfig } from "../runtime/userBots.js";
+import { webPaths } from "../paths.js";
 import { ApprovalBroker } from "./approvals.js";
 import type { ApprovalCard } from "./approvals.js";
 import { buildUserSystemPrompt } from "./engine.js";
@@ -87,6 +92,8 @@ export interface ChatServiceDeps {
   engine: ChatEngine;
   registry?: UserBotRegistry;
   approvals?: ApprovalBroker;
+  /** M2: the owner's paid-route grants and the usage ledger. */
+  paid?: PaidRoutes;
   now?: () => number;
   /** How long a finished run stays available for a late SSE client. */
   keepRunMs?: number;
@@ -98,12 +105,47 @@ export class ChatService {
   readonly #runs = new Map<string, TurnRun>();
   readonly registry: UserBotRegistry;
   readonly approvals: ApprovalBroker;
+  readonly paid: PaidRoutes;
 
   constructor(d: ChatServiceDeps) {
     this.#d = d;
     this.#now = d.now ?? Date.now;
     this.registry = d.registry ?? new UserBotRegistry();
     this.approvals = d.approvals ?? new ApprovalBroker(d.audit, { now: this.#now });
+    this.paid = d.paid ?? new PaidRoutes({ dataDir: d.dataDir, webDir: webPaths(d.dataDir).webDir, audit: d.audit, now: this.#now });
+  }
+
+  /** What a turn of this bot may use NOW (M1): the current caps, terms and paid grants, never the ones the bot was saved under. */
+  #routeContext(userId: string, botId: string, caps: Caps): TurnRouteContext {
+    return {
+      caps,
+      presets: this.#d.presets(),
+      terms: this.#d.terms(),
+      paidHeadroom: (presetId) => {
+        const s = this.paid.status(userId, botId, presetId);
+        return s.enabled ? s.headroom : -1;
+      },
+    };
+  }
+
+  isPaid(presetId: string): boolean {
+    const p = this.#d.presets().find((x) => x.id === presetId);
+    return p !== undefined && isPaidPreset(p);
+  }
+
+  /** Resolves the turn's route; a refusal is audited and thrown as a 403 with a plain message. */
+  #routeOrRefuse(userId: string, botId: string, cfg: UserBotConfig, caps: Caps): void {
+    const r = resolveTurnRoute(cfg, this.#routeContext(userId, botId, caps));
+    this.#auditDrops(userId, botId, r);
+    if (!r.ok) throw new ChatError(403, r.message);
+  }
+
+  #auditDrops(userId: string, botId: string, r: ResolvedTurn): void {
+    for (const d of r.dropped) {
+      if (d.why === "paid_cap") this.#d.audit.write({ kind: "paid_cap_hit", user: userId, detail: { bot: botId, preset: d.preset, which: "turn_start" } });
+      else this.#d.audit.write({ kind: "route_changed", user: userId, detail: { bot: botId, preset: d.preset, why: d.why } });
+    }
+    if (r.ok && r.droppedTools.length > 0) this.#d.audit.write({ kind: "route_changed", user: userId, detail: { bot: botId, tools_dropped: r.droppedTools.length } });
   }
 
   #user(userId: string): { caps: Caps; login: string } {
@@ -143,6 +185,7 @@ export class ChatService {
     if (text === "" || text.length > MAX_MESSAGE_CHARS) throw new ChatError(400, `Write a message of 1 to ${MAX_MESSAGE_CHARS} characters.`);
     const cfg = this.bots(userId).get(botId);
     if (!cfg) throw new ChatError(404, "No such bot.");
+    this.#routeOrRefuse(userId, botId, cfg, caps); // M1/M2: refused before anything is stored
     const threads = this.threads(userId);
     let threadId = typeof req.threadId === "string" && req.threadId !== "" ? req.threadId : undefined;
     if (threadId === undefined) threadId = threads.create(botId).id;
@@ -159,8 +202,7 @@ export class ChatService {
     }
     const { message } = threads.append(botId, threadId, { role: "user", text });
     this.quota(userId).record({ chats: 1 });
-    const bot = this.registry.registerUserBot(this.#d.dataDir, userId, botId, cfg);
-    const run = this.#startRun(userId, botId, threadId, bot, cfg.tagline, text);
+    const run = this.#startRun(userId, botId, threadId, cfg, text);
     run.push({ type: "start", thread: threadId, message: message.id });
     return { threadId, messageId: message.id };
   }
@@ -187,8 +229,8 @@ export class ChatService {
       }
       throw e;
     }
-    const bot = this.registry.registerUserBot(this.#d.dataDir, userId, botId, cfg);
-    const run = this.#startRun(userId, botId, threadId, bot, cfg.tagline, lastUser.text);
+    this.#routeOrRefuse(userId, botId, cfg, caps);
+    const run = this.#startRun(userId, botId, threadId, cfg, lastUser.text);
     run.push({ type: "start", thread: threadId, message: lastUser.id });
     return { threadId };
   }
@@ -225,10 +267,10 @@ export class ChatService {
     return n;
   }
 
-  #startRun(userId: string, botId: string, threadId: string, bot: RuntimeUserBot, tagline: string, userText: string): TurnRun {
+  #startRun(userId: string, botId: string, threadId: string, cfg: UserBotConfig, userText: string): TurnRun {
     const run = new TurnRun(userId, botId, threadId);
     this.#runs.set(this.#key(userId, threadId), run);
-    void this.#execute(run, bot, tagline, userText).finally(() => {
+    void this.#execute(run, cfg, userText).finally(() => {
       run.done = true;
       const t = setTimeout(() => {
         if (this.#runs.get(this.#key(userId, threadId)) === run) this.#runs.delete(this.#key(userId, threadId));
@@ -238,7 +280,8 @@ export class ChatService {
     return run;
   }
 
-  async #execute(run: TurnRun, bot: RuntimeUserBot, tagline: string, userText: string): Promise<void> {
+  async #execute(run: TurnRun, cfg: UserBotConfig, userText: string): Promise<void> {
+    const tagline = cfg.tagline;
     const { userId, botId, threadId } = run;
     const threads = this.threads(userId);
     let caps: Caps;
@@ -254,6 +297,7 @@ export class ChatService {
     let usage = { input: 0, output: 0 };
     let stopReason: "stop" | "aborted" | "error" = "stop";
     let error: string | undefined;
+    let servedBy: string | undefined;
     let lease: Awaited<ReturnType<TurnScheduler["acquire"]>> | undefined;
     try {
       const waiting = setTimeout(() => run.push({ type: "queued" }), 400);
@@ -261,6 +305,18 @@ export class ChatService {
         lease = await this.#d.scheduler.acquire({ key: `user:${userId}`, cls: "web", signal: run.abort.signal });
       } finally {
         clearTimeout(waiting);
+      }
+      // M1/M2: the caps may have changed while the turn waited for the model slot: resolve the route again, with the caps of NOW
+      caps = this.#user(userId).caps;
+      const resolved = resolveTurnRoute(cfg, this.#routeContext(userId, botId, caps));
+      if (!resolved.ok) {
+        this.#auditDrops(userId, botId, resolved);
+        throw new ChatError(403, resolved.message);
+      }
+      const bot = this.registry.registerUserBot(this.#d.dataDir, userId, botId, cfg, resolved);
+      if (resolved.notice) {
+        notice = resolved.notice;
+        run.push({ type: "notice", text: resolved.notice });
       }
       const th = threads.get(botId, threadId);
       const msgs = th.messages.slice(0, -1).filter((m) => m.role === "user" || m.text !== "");
@@ -272,7 +328,7 @@ export class ChatService {
         history.unshift({ role: m.role, text: m.text });
       }
       // the last message of the thread is the user's text for this turn: the engine receives it separately
-      const box = buildUserToolbox(bot, caps);
+      const box = buildUserToolbox(bot, caps); // caps.tools: a tool taken away since the bot was saved does not exist (M1)
       const callTool = async (name: string, args: Record<string, unknown>): Promise<{ ok: boolean; text: string; question?: string }> => {
         run.push({ type: "tool", name, status: "running" });
         if (ASK_FIRST_TOOLS.includes(name) && box.names().includes(name)) {
@@ -298,6 +354,14 @@ export class ChatService {
         userText,
         signal: run.abort.signal,
         tools: box.tools,
+        allow: (presetId) => {
+          try {
+            return whyNot(presetId, this.#routeContext(userId, botId, this.#user(userId).caps)) === undefined;
+          } catch {
+            return false; // the account was disabled meanwhile
+          }
+        },
+        budget: (presetId) => (this.isPaid(presetId) ? Math.max(0, this.paid.status(userId, botId, presetId).headroom) : undefined),
         emit: (ev) => {
           if (ev.type === "delta") {
             text += ev.text;
@@ -312,8 +376,13 @@ export class ChatService {
       stopReason = run.abort.signal.aborted ? "aborted" : result.stopReason;
       usage = result.usage;
       error = result.error;
+      servedBy = result.servedBy;
     } catch (e) {
       if (e instanceof SchedulerAbortedError) stopReason = "aborted";
+      else if (e instanceof ChatError) {
+        stopReason = "error";
+        error = e.message;
+      }
       else if (e instanceof SchedulerBusyError) {
         stopReason = "error";
         error = "The model is busy right now. Try again in a minute.";
@@ -325,6 +394,13 @@ export class ChatService {
       lease?.release();
     }
     const tokens = usage.input + usage.output || Math.ceil((userText.length + text.length) / 4);
+    if (servedBy !== undefined && this.isPaid(servedBy)) {
+      try {
+        this.paid.record(userId, botId, servedBy, tokens); // M2: every paid turn is counted and audited
+      } catch {
+        /* the ledger write failed: the chat_turn audit line still has the tokens */
+      }
+    }
     try {
       const msg: Omit<ChatMessage, "id" | "at"> = { role: "assistant", text, ...(tools.length ? { tools } : {}), usage, ...(stopReason === "aborted" ? { stopped: true } : {}), ...(error ? { error } : {}), ...(notice ? { notice } : {}) };
       if (text !== "" || error || stopReason === "aborted") threads.append(botId, threadId, msg);

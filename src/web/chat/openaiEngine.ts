@@ -23,6 +23,8 @@ export interface ModelEndpoint {
   viaProxy: boolean;
   /** The proxy provider of the preset (`claude`, `codex`, `antigravity`): the API-key refusal and /status are keyed by it, never by the model id (L7). */
   providerId?: string | undefined;
+  /** M2: a paid route (billed per use). The API-key refusal of MA2 does not apply to it; its spending cap does. */
+  paid?: boolean | undefined;
   label: string;
 }
 
@@ -62,13 +64,13 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
   const rounds = o.maxToolRounds ?? 6;
 
   /** One streamed request. Calls `onDelta` for text. Returns finish info or throws `Failed`. */
-  async function stream(ep: ModelEndpoint, messages: Msg[], tools: EngineTurn["tools"], signal: AbortSignal, onDelta: (s: string) => void): Promise<{ content: string; calls: NonNullable<Msg["tool_calls"]>; usage?: { input: number; output: number } }> {
+  async function stream(ep: ModelEndpoint, messages: Msg[], tools: EngineTurn["tools"], signal: AbortSignal, onDelta: (s: string) => void, maxTokens: number = ep.maxTokens): Promise<{ content: string; calls: NonNullable<Msg["tool_calls"]>; usage?: { input: number; output: number } }> {
     const body = {
       model: ep.modelId,
       messages,
       stream: true,
       stream_options: { include_usage: true },
-      max_tokens: ep.maxTokens,
+      max_tokens: maxTokens,
       ...(tools.length > 0 ? { tools: tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
     };
     let res: Awaited<ReturnType<typeof doFetch>>;
@@ -143,11 +145,18 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
     return { content, calls: out, ...(usage ? { usage } : {}) };
   }
 
-  async function turnOn(t: EngineTurn, ep: ModelEndpoint): Promise<EngineResult> {
+  async function turnOn(t: EngineTurn, ep: ModelEndpoint, presetId: string): Promise<EngineResult> {
     const messages: Msg[] = [{ role: "system", content: t.system }, ...t.history.map((h) => ({ role: h.role, content: h.text }) as Msg), { role: "user", content: t.userText }];
     const total = { input: 0, output: 0 };
+    const budget = t.budget?.(presetId);
     for (let round = 0; round < rounds; round++) {
-      const r = await stream(ep, messages, t.tools, t.signal, (s) => t.emit({ type: "delta", text: s }));
+      // M2: a paid preset never gets more output than its cap has left, and the answer ends when the cap is used up
+      const left = budget === undefined ? undefined : budget - total.input - total.output;
+      if (left !== undefined && left <= 0) {
+        t.emit({ type: "notice", text: "The paid model reached its spending cap during this answer, so it stops here." });
+        return { stopReason: "stop", usage: total };
+      }
+      const r = await stream(ep, messages, t.tools, t.signal, (s) => t.emit({ type: "delta", text: s }), left === undefined ? ep.maxTokens : Math.max(1, Math.min(ep.maxTokens, left)));
       total.input += r.usage?.input ?? 0;
       total.output += r.usage?.output ?? 0;
       if (r.calls.length === 0) return { stopReason: "stop", usage: total };
@@ -175,9 +184,12 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
       let said = false;
       let lastFailure: ProxyFailure | undefined;
       for (let i = 0; i < ids.length; i++) {
-        const ep = o.endpoint(ids[i] as string);
+        const id = ids[i] as string;
+        if (t.allow && !t.allow(id)) continue; // M1/M2: dropped since the turn started
+        const ep = o.endpoint(id);
         if (!ep) continue;
-        if (ep.viaProxy && ep.providerId !== undefined && o.status?.refused(ep.providerId)) {
+        // MA2: an API-key login is refused for a subscription preset; a preset the owner marked as paid (M2) is billed per use on purpose
+        if (ep.viaProxy && ep.providerId !== undefined && ep.paid !== true && o.status?.refused(ep.providerId)) {
           lastFailure = failureOf("refused");
           if (!said && i + 1 < ids.length) {
             t.emit({ type: "notice", text: NOTICE["refused"] as string });
@@ -186,9 +198,9 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
           continue;
         }
         try {
-          const r = await turnOn(t, ep);
+          const r = await turnOn(t, ep, id);
           if (ep.viaProxy && ep.providerId !== undefined) o.status?.noteSuccess(`acp-${ep.providerId}`);
-          return r;
+          return { ...r, servedBy: id };
         } catch (e) {
           if (!(e instanceof Failed)) {
             if (t.signal.aborted) return { stopReason: "aborted", usage: { input: 0, output: 0 } };

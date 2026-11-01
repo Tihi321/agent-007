@@ -36,10 +36,11 @@ const str = (v: unknown, max: number, what: string): string => {
 
 const SECRET_LIKE = /(sk-[A-Za-z0-9]{16,}|ghp_[A-Za-z0-9]{20,}|AKIA[0-9A-Z]{16}|-----BEGIN [A-Z ]*PRIVATE KEY-----|\b[A-Za-z0-9_-]{24,}\.[A-Za-z0-9_-]{6,}\.[A-Za-z0-9_-]{20,}\b)/;
 
-export function buildUserToolbox(bot: RuntimeUserBot, caps: { storageMB: number }, limits: Partial<UserFsLimits> = {}): { tools: UserTool[]; names(): string[]; call(name: string, args: unknown): ToolResult } {
+/** `caps.tools`, when given, is the CURRENT allowance of the user: a tool the bot was saved with but the owner has since taken away does not exist (M1). */
+export function buildUserToolbox(bot: RuntimeUserBot, caps: { storageMB: number; tools?: readonly string[] }, limits: Partial<UserFsLimits> = {}): { tools: UserTool[]; names(): string[]; call(name: string, args: unknown): ToolResult } {
   const fs = new UserFs([...bot.readRoots], { quotaBytes: caps.storageMB * 1024 * 1024, ...limits });
   const memoryFile = bot.memoryFile;
-  const wanted = new Set(bot.tools.filter((t) => USER_TOOL_UNIVERSE.includes(t)).slice(0, USER_ALWAYS_LOADED_MAX));
+  const wanted = new Set(bot.tools.filter((t) => USER_TOOL_UNIVERSE.includes(t) && (caps.tools === undefined || caps.tools.includes(t))).slice(0, USER_ALWAYS_LOADED_MAX));
   const all: Record<string, UserTool> = {
     tool_search: {
       name: "tool_search",

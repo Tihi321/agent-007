@@ -23,6 +23,10 @@ export interface EngineTurn {
   emit(ev: EngineEvent): void;
   /** Runs a tool of THIS bot's registry. Ask-first tools wait here for the user's card. */
   callTool(name: string, args: Record<string, unknown>): Promise<ToolResult>;
+  /** M1/M2: re-checked right before a preset of the route is called (caps, terms or a paid grant may have changed). Absent = allowed. */
+  allow?(presetId: string): boolean;
+  /** M2: tokens left for a paid preset (the engine clamps `max_tokens` and stops the answer at 0); undefined = not a paid preset. */
+  budget?(presetId: string): number | undefined;
 }
 
 export interface EngineResult {
@@ -30,6 +34,8 @@ export interface EngineResult {
   usage: { input: number; output: number };
   /** For `error`: a fixed, content-free sentence for the user. */
   error?: string;
+  /** The preset that produced the answer (for the paid-route ledger). */
+  servedBy?: string;
 }
 
 export interface ChatEngine {

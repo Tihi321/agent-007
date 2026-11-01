@@ -13,6 +13,15 @@ export function badgeEl(bot) {
   return h("span", { class: bot.cloud ? "badge badge-cloud" : "badge" }, bot.cloud ? `${bot.presetLabel} (cloud)` : bot.presetLabel);
 }
 
+/** M2: one line per paid model of a bot: off until the owner enables it, else the usage against the day and month caps. */
+export function paidLines(paid) {
+  return (paid || []).map((p) =>
+    h("p", { class: "muted small" }, p.enabled ? `${p.label} (paid): ${p.dayTokens}/${p.perDay} tokens today, ${p.monthTokens}/${p.perMonth} this month${p.headroom === 0 ? ", cap reached" : ""}` : `${p.label} (paid): off until the owner enables it with a spending cap`),
+  );
+}
+
+const presetText = (p) => `${p.label}${p.paid ? " (paid)" : p.cloud ? " (cloud)" : ""}`;
+
 export async function renderBots(ctx) {
   const r = await ctx.api.call("/api/bots/list", {});
   const bots = r.ok ? r.data.bots : [];
@@ -30,6 +39,7 @@ export async function renderBots(ctx) {
           { class: "card bot-card" },
           h("div", { class: "row" }, avatarEl(b.avatar), h("div", {}, h("strong", {}, b.name), h("div", { class: "muted small" }, b.tagline || ""))),
           h("div", {}, badgeEl(b)),
+          paidLines(b.paid),
           h("div", { class: "row" }, h("button", { class: "btn btn-primary", type: "button", onclick: () => ctx.go(`#/chat/${b.id}`) }, "Chat"), h("button", { class: "btn", type: "button", onclick: () => ctx.go(`#/bot/${b.id}`) }, "Edit")),
         ),
       ),
@@ -40,7 +50,7 @@ export async function renderBots(ctx) {
 export async function renderBotEditor(ctx, botId) {
   const opts = await ctx.api.call("/api/bots/options", {});
   const o = opts.ok ? opts.data : { presets: [], avatars: [], tools: [], maxBots: 0, count: 0 };
-  let bot = { name: "", tagline: "", avatar: o.avatars[0] || "robot", persona: "", preset: o.presets[0]?.id || "", fallback: null, tools: ["tool_search"], memory: false, starters: [] };
+  let bot = { name: "", tagline: "", avatar: o.avatars[0] || "robot", persona: "", preset: o.presets[0]?.id || "", cloudFallback: null, fallback: null, tools: ["tool_search"], memory: false, starters: [] };
   if (botId) {
     const g = await ctx.api.call("/api/bots/get", { id: botId });
     if (!g.ok) return h("p", { class: "banner banner-error", role: "alert" }, g.data.message || "No such bot.");
@@ -52,14 +62,17 @@ export async function renderBotEditor(ctx, botId) {
   const avatar = h("select", { name: "avatar" }, o.avatars.map((a) => h("option", { value: a, selected: a === bot.avatar }, AVATAR_LABEL[a] || a)));
   const persona = h("textarea", { name: "persona", maxlength: "4000" });
   persona.value = bot.persona || "";
-  const preset = h("select", { name: "preset" }, o.presets.map((p) => h("option", { value: p.id, selected: p.id === bot.preset }, p.cloud ? `${p.label} (cloud)` : p.label)));
+  const preset = h("select", { name: "preset" }, o.presets.map((p) => h("option", { value: p.id, selected: p.id === bot.preset }, presetText(p))));
+  const cloudFallback = h("select", { name: "cloudFallback" }, h("option", { value: "" }, "No cloud fallback"), o.presets.filter((p) => p.cloud).map((p) => h("option", { value: p.id, selected: p.id === bot.cloudFallback }, presetText(p))));
   const fallback = h("select", { name: "fallback" }, h("option", { value: "" }, "No local fallback"), o.presets.filter((p) => !p.cloud).map((p) => h("option", { value: p.id, selected: p.id === bot.fallback }, p.label)));
   const note = h("p", { class: "help", "aria-live": "polite" });
   const refreshNote = () => {
     const p = o.presets.find((x) => x.id === preset.value);
-    note.textContent = p ? p.note : "";
+    const paid = [preset.value, cloudFallback.value].map((id) => o.presets.find((x) => x.id === id)).filter((x) => x && x.paid);
+    note.textContent = (p ? p.note : "") + (paid.length ? ` Paid route (${paid.map((x) => x.label).join(", ")}): off until the owner enables it for this bot with a daily and a monthly cap; it stops at the cap.` : "");
   };
   preset.addEventListener("change", refreshNote);
+  cloudFallback.addEventListener("change", refreshNote);
   refreshNote();
   const toolBoxes = o.tools.map((t) => {
     const cb = h("input", { type: "checkbox", value: t, checked: bot.tools.includes(t) });
@@ -81,6 +94,7 @@ export async function renderBotEditor(ctx, botId) {
           avatar: avatar.value,
           persona: persona.value,
           preset: preset.value,
+          cloudFallback: cloudFallback.value,
           fallback: fallback.value,
           tools: toolBoxes.filter((x) => x.cb.checked).map((x) => x.t),
           memory: memory.checked,
@@ -101,6 +115,8 @@ export async function renderBotEditor(ctx, botId) {
     field("Persona", persona, "Written by you. It shapes tone and style only; it cannot give the bot new powers."),
     field("Model", preset),
     note,
+    field("Cloud fallback", cloudFallback, "Tried after the main model, before the local fallback. A paid route here also needs the owner's cap."),
+    botId ? paidLines(bot.paid) : null,
     field("Local fallback", fallback, "Used once if the main model is not available. A fallback is always a local model."),
     h("fieldset", {}, h("legend", {}, "Tools"), toolBoxes.map((x) => x.el)),
     h("label", { class: "check" }, memory, h("span", {}, "Remember durable notes about me (this bot's own memory)")),

@@ -11,7 +11,8 @@ import { SECURITY_HEADERS, one } from "../http.js";
 import type { RouteCtx, RouteDef, RouteResult } from "../server.js";
 import { ChatError, QuotaError, ThreadError, UserBotError } from "../chat/service.js";
 import type { ChatService, SeqEvent } from "../chat/service.js";
-import { AVATARS, } from "../runtime/userBots.js";
+import { chainOf } from "../runtime/route.js";
+import { AVATARS } from "../runtime/userBots.js";
 import type { UserBotConfig } from "../runtime/userBots.js";
 import { obj } from "./auth.js";
 
@@ -32,10 +33,13 @@ function sse(res: ServerResponse, e: SeqEvent): void {
 
 export function chatRoutes(svc: ChatService, presets: () => readonly PresetConfig[], users: (userId: string) => { caps: { presets: string[]; tools: string[]; maxBots: number } } | undefined): Record<string, RouteDef> {
   const uid = (c: RouteCtx): string => c.session?.userId ?? "";
-  const botView = (id: string, b: UserBotConfig, full = false) => {
+  /** M2: the paid links of a bot's chain, with the owner's grant and the usage of today and this month. */
+  const paidOf = (userId: string, id: string, b: UserBotConfig) => chainOf(b).filter((p) => svc.isPaid(p)).map((p) => ({ label: presets().find((x) => x.id === p)?.label ?? p, ...svc.paid.status(userId, id, p) }));
+  const botView = (userId: string, id: string, b: UserBotConfig, full = false) => {
     const ps = presets();
     const p = ps.find((x) => x.id === b.preset);
-    const badge = brainBadge({ route: { primary: b.preset, allowed: b.fallback ? [b.preset, b.fallback] : [b.preset], fallback: b.fallback ? [b.fallback] : [], onAuthRequired: "fallback" } }, ps);
+    const chain = chainOf(b);
+    const badge = brainBadge({ route: { primary: chain[0] as string, allowed: chain, fallback: chain.slice(1), onAuthRequired: "fallback" } }, ps);
     return {
       id,
       name: b.name,
@@ -43,7 +47,9 @@ export function chatRoutes(svc: ChatService, presets: () => readonly PresetConfi
       avatar: b.avatar,
       preset: b.preset,
       presetLabel: p?.label ?? b.preset,
+      cloudFallback: b.cloudFallback ?? null,
       fallback: b.fallback ?? null,
+      paid: paidOf(userId, id, b),
       cloud: badge.cloud,
       egressNote: badge.egressNote,
       tools: b.tools,
@@ -59,18 +65,18 @@ export function chatRoutes(svc: ChatService, presets: () => readonly PresetConfi
         api(() => {
           const caps = users(uid(c))?.caps;
           if (!caps) return { status: 403, body: { error: "forbidden" } };
-          const ps = presets().filter((p) => caps.presets.includes(p.id)).map((p) => ({ id: p.id, label: p.label, cloud: p.privacy === "cloud", note: brainBadge({ route: { primary: p.id, allowed: [p.id], fallback: [], onAuthRequired: "fallback" } }, presets()).egressNote }));
+          const ps = presets().filter((p) => caps.presets.includes(p.id)).map((p) => ({ id: p.id, label: p.label, cloud: p.privacy === "cloud", paid: svc.isPaid(p.id), note: brainBadge({ route: { primary: p.id, allowed: [p.id], fallback: [], onAuthRequired: "fallback" } }, presets()).egressNote }));
           return { status: 200, body: { presets: ps, avatars: AVATARS, tools: caps.tools.filter((t) => USER_TOOL_UNIVERSE.includes(t)), maxBots: caps.maxBots, count: svc.bots(uid(c)).ids().length } };
         }),
     },
-    "POST /api/bots/list": { auth: "session", handler: (c) => api(() => ({ status: 200, body: { bots: svc.bots(uid(c)).list().map(({ id, bot }) => botView(id, bot)) } })) },
+    "POST /api/bots/list": { auth: "session", handler: (c) => api(() => ({ status: 200, body: { bots: svc.bots(uid(c)).list().map(({ id, bot }) => botView(uid(c), id, bot)) } })) },
     "POST /api/bots/get": {
       auth: "session",
       handler: (c) =>
         api(() => {
           const id = String(obj(c.body)["id"]);
           const b = svc.bots(uid(c)).get(id);
-          return b ? { status: 200, body: { bot: botView(id, b, true) } } : { status: 404, body: { error: "chat", message: "No such bot." } };
+          return b ? { status: 200, body: { bot: botView(uid(c), id, b, true) } } : { status: 404, body: { error: "chat", message: "No such bot." } };
         }),
     },
     "POST /api/bots/create": {
@@ -78,7 +84,7 @@ export function chatRoutes(svc: ChatService, presets: () => readonly PresetConfi
       handler: (c) =>
         api(() => {
           const r = svc.bots(uid(c)).create(obj(c.body));
-          return { status: 200, body: { bot: botView(r.id, r.bot, true), warnings: r.warnings } };
+          return { status: 200, body: { bot: botView(uid(c), r.id, r.bot, true), warnings: r.warnings } };
         }),
     },
     "POST /api/bots/update": {
@@ -87,7 +93,7 @@ export function chatRoutes(svc: ChatService, presets: () => readonly PresetConfi
         api(() => {
           const { id, ...rest } = obj(c.body);
           const r = svc.bots(uid(c)).update(String(id), rest);
-          return { status: 200, body: { bot: botView(String(id), r.bot, true), warnings: r.warnings } };
+          return { status: 200, body: { bot: botView(uid(c), String(id), r.bot, true), warnings: r.warnings } };
         }),
     },
     "POST /api/bots/delete": {
@@ -97,6 +103,7 @@ export function chatRoutes(svc: ChatService, presets: () => readonly PresetConfi
           const id = String(obj(c.body)["id"]);
           svc.bots(uid(c)).delete(id);
           svc.registry.unregister(`u:${uid(c)}:${id}`);
+          svc.paid.dropFor(uid(c), id); // a deleted bot keeps no paid grant (a new bot with the same name starts switched off)
           return { status: 200, body: { ok: true } };
         }),
     },
@@ -145,7 +152,14 @@ export function chatRoutes(svc: ChatService, presets: () => readonly PresetConfi
           return ok ? { status: 200, body: { ok: true } } : { status: 404, body: { error: "chat", message: "That approval is no longer open." } };
         }),
     },
-    "POST /api/chat/usage": { auth: "session", handler: (c) => api(() => ({ status: 200, body: svc.usage(uid(c)) })) },
+    "POST /api/chat/usage": {
+      auth: "session",
+      handler: (c) =>
+        api(() => ({
+          status: 200,
+          body: { ...svc.usage(uid(c)), paid: svc.bots(uid(c)).list().flatMap(({ id, bot }) => paidOf(uid(c), id, bot).map((p) => ({ bot: id, botName: bot.name, ...p }))) },
+        })),
+    },
     "GET /api/chat/stream": {
       auth: "session",
       stream: true,

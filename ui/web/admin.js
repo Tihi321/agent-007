@@ -8,6 +8,7 @@ export async function renderAdmin(ctx) {
   const usersEl = h("ul", { class: "cards", role: "list" });
   const invitesEl = h("ul", { class: "plainlist", role: "list" });
   const auditEl = h("pre", { class: "audit", tabindex: "0" });
+  const paidEl = h("ul", { class: "cards", role: "list" });
   const note = (ok, msg) => clear(out, h("p", { class: ok ? "banner banner-ok" : "banner banner-error", role: ok ? null : "alert" }, msg));
   const act = async (path, body, okMsg) => {
     const r = await withStepUp(ctx, () => ctx.api.call(path, body), out);
@@ -48,6 +49,32 @@ export async function renderAdmin(ctx) {
     const i = await ctx.api.call("/api/admin/invites", {});
     clear(invitesEl, (i.ok ? i.data.invites : []).map((x) => h("li", { class: "row" }, h("span", {}, `${x.role} · ${x.state}${x.pin ? ` · ${x.pin}` : ""} · expires ${when(x.expiresAt)}`), x.state === "pending" ? h("button", { class: "btn btn-small", type: "button", onclick: () => act("/api/admin/invites/revoke", { id: x.id }, "Revoked.") }, "Revoke") : null)));
     if (ctx.role === "owner") {
+      // M2: paid routes are off per bot until the owner enables them here with a daily and a monthly token cap
+      const p = await ctx.api.call("/api/admin/paid/list", {});
+      const rows = p.ok ? p.data.routes : [];
+      clear(
+        paidEl,
+        rows.length === 0
+          ? h("li", { class: "muted" }, "No bot uses a paid model.")
+          : rows.map((x) => {
+              const perDay = h("input", { type: "number", min: "1", step: "1", name: "perDay", value: x.enabled ? String(x.perDay) : "", "aria-label": `Tokens per day for ${x.botName}` });
+              const perMonth = h("input", { type: "number", min: "1", step: "1", name: "perMonth", value: x.enabled ? String(x.perMonth) : "", "aria-label": `Tokens per month for ${x.botName}` });
+              return h(
+                "li",
+                { class: "card" },
+                h("strong", {}, x.botName), " ", h("span", { class: "muted" }, x.login), " ", h("span", { class: "badge badge-cloud" }, `${x.label} (paid)`),
+                h("p", { class: "muted small" }, x.enabled ? `On: ${x.dayTokens}/${x.perDay} tokens today, ${x.monthTokens}/${x.perMonth} this month${x.headroom === 0 ? ", cap reached" : ""}` : "Off"),
+                field("Tokens per day", perDay),
+                field("Tokens per month", perMonth),
+                h(
+                  "div",
+                  { class: "row" },
+                  h("button", { class: "btn btn-small", type: "button", onclick: () => act("/api/admin/paid/set", { userId: x.userId, botId: x.botId, preset: x.preset, enabled: true, perDay: Number(perDay.value), perMonth: Number(perMonth.value) }, "Paid route enabled with its caps.") }, x.enabled ? "Save caps" : "Enable with these caps"),
+                  x.enabled ? h("button", { class: "btn btn-small", type: "button", onclick: () => act("/api/admin/paid/set", { userId: x.userId, botId: x.botId, preset: x.preset, enabled: false }, "Paid route switched off.") }, "Switch off") : null,
+                ),
+              );
+            }),
+      );
       const a = await ctx.api.call("/api/admin/audit", {});
       auditEl.textContent = a.ok ? a.data.events.slice(-80).map((e) => `${e.ts} ${e.kind}${e.user ? " " + e.user.slice(0, 8) : ""} ${e.detail ? JSON.stringify(e.detail) : ""}`).join("\n") : "";
     }
@@ -79,5 +106,5 @@ export async function renderAdmin(ctx) {
         if (r.ok) ctx.signedOut();
       } }, "Lockdown: sign everyone out")
     : null;
-  return h("section", { "aria-labelledby": "admin-title" }, h("h1", { id: "admin-title" }, "Admin"), out, h("h2", {}, "People"), usersEl, invite, h("h2", {}, "Invitations"), invitesEl, ctx.role === "owner" ? h("h2", {}, "Audit (no message text)") : null, ctx.role === "owner" ? auditEl : null, lock);
+  return h("section", { "aria-labelledby": "admin-title" }, h("h1", { id: "admin-title" }, "Admin"), out, h("h2", {}, "People"), usersEl, invite, h("h2", {}, "Invitations"), invitesEl, ctx.role === "owner" ? h("h2", {}, "Paid routes (off until you set a daily and a monthly cap)") : null, ctx.role === "owner" ? paidEl : null, ctx.role === "owner" ? h("h2", {}, "Audit (no message text)") : null, ctx.role === "owner" ? auditEl : null, lock);
 }

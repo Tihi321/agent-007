@@ -10,7 +10,7 @@
  * address a user bot.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
-import { PRESET_ID_PATTERN } from "../../bots/schema.js";
+import { PRESET_ID_PATTERN, isPaidPreset } from "../../bots/schema.js";
 import type { PresetConfig, TermsAccepted } from "../../bots/schema.js";
 import { presetProblem } from "../../models/presets.js";
 import type { WebAudit } from "../audit.js";
@@ -29,6 +29,8 @@ export interface UserBotConfig {
   avatar: string;
   persona: string;
   preset: string;
+  /** M2: a cloud model tried after the main one (plan section 0a item 6 (b)); may be a paid route, which stays off until the owner enables it. */
+  cloudFallback?: string;
   fallback?: string;
   tools: string[];
   memory: boolean;
@@ -50,7 +52,7 @@ export class UserBotError extends Error {
   }
 }
 
-const ALLOWED_KEYS = ["name", "tagline", "avatar", "persona", "preset", "fallback", "tools", "memory", "starters"];
+const ALLOWED_KEYS = ["name", "tagline", "avatar", "persona", "preset", "cloudFallback", "fallback", "tools", "memory", "starters"];
 const clean = (s: string): string => s.replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
 
 export interface ValidationContext {
@@ -92,8 +94,24 @@ export function validateUserBot(input: unknown, ctx: ValidationContext): { ok: t
       if (why) issues.push(`preset: ${why}`);
     }
   }
+  let cloudFallback: string | undefined;
+  if (o["cloudFallback"] !== undefined && o["cloudFallback"] !== "" && o["cloudFallback"] !== null) {
+    cloudFallback = typeof o["cloudFallback"] === "string" ? o["cloudFallback"] : "";
+    const p = find(cloudFallback);
+    if (!ctx.caps.presets.includes(cloudFallback) || !p) issues.push("cloudFallback: not one of the models you may use");
+    else if (p.privacy !== "cloud") issues.push("cloudFallback: must be a cloud model (pick a local model as the local fallback)");
+    else if (cloudFallback === preset) issues.push("cloudFallback: must differ from the main model");
+    else {
+      const why = presetProblem(p, ctx.terms);
+      if (why) issues.push(`cloudFallback: ${why}`);
+    }
+  }
+  for (const id of [preset, cloudFallback]) {
+    const p = id ? find(id) : undefined;
+    if (p && isPaidPreset(p)) warnings.push(`${p.label} is a paid route: it stays off for this bot until the owner enables it with a daily and a monthly cap.`);
+  }
   let fallback: string | undefined;
-  if (o["fallback"] !== undefined && o["fallback"] !== "") {
+  if (o["fallback"] !== undefined && o["fallback"] !== "" && o["fallback"] !== null) {
     fallback = typeof o["fallback"] === "string" ? o["fallback"] : "";
     const p = find(fallback);
     if (!ctx.caps.presets.includes(fallback) || !p) issues.push("fallback: not one of the models you may use");
@@ -117,7 +135,7 @@ export function validateUserBot(input: unknown, ctx: ValidationContext): { ok: t
   if (!Array.isArray(startersIn) || startersIn.length > 5) issues.push("starters: a list of at most 5");
   else for (const s of startersIn) typeof s === "string" && clean(s).trim().length >= 1 && clean(s).trim().length <= 120 ? starters.push(clean(s).trim()) : issues.push("starters: each is 1 to 120 characters");
   if (issues.length > 0) return { ok: false, issues };
-  return { ok: true, warnings, bot: { name, tagline, avatar, persona, preset, ...(fallback ? { fallback } : {}), tools, memory: o["memory"] === true, starters } };
+  return { ok: true, warnings, bot: { name, tagline, avatar, persona, preset, ...(cloudFallback ? { cloudFallback } : {}), ...(fallback ? { fallback } : {}), tools, memory: o["memory"] === true, starters } };
 }
 
 function slug(name: string, taken: ReadonlySet<string>): string {
@@ -231,17 +249,22 @@ export interface RuntimeUserBot {
   readonly telegramTokenRef: undefined;
 }
 
-export function toRuntimeBot(dataDir: string, userId: string, botId: string, cfg: UserBotConfig): RuntimeUserBot {
+/**
+ * The runtime form of a stored bot. `turn` is the route and tools of THIS turn from `resolveTurnRoute` (current caps, terms and paid grants,
+ * M1); without it (tests, previews) the stored chain is used as is.
+ */
+export function toRuntimeBot(dataDir: string, userId: string, botId: string, cfg: UserBotConfig, turn?: { route: { primary: string; fallback: string[]; allowed: string[] }; tools: string[] }): RuntimeUserBot {
   const up = userPaths(dataDir, userId);
   const bp = up.bot(botId);
+  const chain = [...new Set([cfg.preset, cfg.cloudFallback, cfg.fallback].filter((x): x is string => typeof x === "string" && x !== ""))];
   return {
     runtimeId: runtimeBotId(userId, botId),
     userId,
     botId,
     name: cfg.name,
     persona: cfg.persona,
-    route: { primary: cfg.preset, allowed: cfg.fallback ? [cfg.preset, cfg.fallback] : [cfg.preset], fallback: cfg.fallback ? [cfg.fallback] : [], onAuthRequired: "fallback" },
-    tools: [...cfg.tools],
+    route: turn ? { primary: turn.route.primary, allowed: [...turn.route.allowed], fallback: [...turn.route.fallback], onAuthRequired: "fallback" } : { primary: chain[0] as string, allowed: chain, fallback: chain.slice(1), onAuthRequired: "fallback" },
+    tools: turn ? [...turn.tools] : [...cfg.tools],
     memory: cfg.memory,
     memoryFile: bp.memoryFile,
     readRoots: [
@@ -258,8 +281,8 @@ export class UserBotRegistry {
   readonly #bots = new Map<string, RuntimeUserBot>();
 
   /** The second registration source: a user's bot, under its namespaced id. Re-registering the same bot replaces it; a collision is impossible by construction. */
-  registerUserBot(dataDir: string, userId: string, botId: string, cfg: UserBotConfig): RuntimeUserBot {
-    const bot = toRuntimeBot(dataDir, userId, botId, cfg);
+  registerUserBot(dataDir: string, userId: string, botId: string, cfg: UserBotConfig, turn?: Parameters<typeof toRuntimeBot>[4]): RuntimeUserBot {
+    const bot = toRuntimeBot(dataDir, userId, botId, cfg, turn);
     this.#bots.set(bot.runtimeId, bot);
     return bot;
   }

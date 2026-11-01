@@ -236,3 +236,28 @@ test("L7: the API-key refusal is keyed by the preset's provider id, not by 'clau
   await r.refresh();
   assert.equal(checks, 2);
 });
+
+test("M2: a paid preset's budget clamps max_tokens and ends the tool loop when used up; servedBy names the preset; allow() drops a link", async () => {
+  const loop = await startFakeOpenAi({ modelId: "m", behavior: () => ({ type: "tool_calls", calls: [{ name: "tool_search", args: {} }] }) });
+  const strata = await startFakeOpenAi({ behavior: say("local"), modelId: "m" });
+  try {
+    const eng = createOpenAiEngine({ endpoint: (id) => (id === "claude-sonnet" ? { baseUrl: loop.baseUrl, modelId: "m", maxTokens: 4096, viaProxy: true, providerId: "claude", paid: true, label: "Paid" } : { baseUrl: strata.baseUrl, modelId: "m", maxTokens: 512, viaProxy: false, label: "Strata" }) });
+    const x = turn({ callTool: async () => ({ ok: true, text: "x" }) });
+    x.t.budget = (id) => (id === "claude-sonnet" ? 30 : undefined);
+    const r = await eng.runTurn(x.t);
+    assert.equal(loop.chatRequests()[0]!.body!.max_tokens, 30, "the output is clamped to the cap's headroom");
+    assert.ok(loop.chatRequests().length < 6, "the loop stopped at the cap, not at the round limit");
+    assert.equal(r.servedBy, "claude-sonnet");
+    assert.ok(x.events.some((e) => e.type === "notice" && /spending cap/.test(e.text)));
+    // a link dropped since the turn started (allow false) is skipped: the local model answers
+    const y = turn();
+    y.t.allow = (id) => id !== "claude-sonnet";
+    const before = loop.chatRequests().length;
+    const r2 = await eng.runTurn(y.t);
+    assert.equal(loop.chatRequests().length, before);
+    assert.equal(r2.servedBy, "strata");
+  } finally {
+    await loop.close();
+    await strata.close();
+  }
+});

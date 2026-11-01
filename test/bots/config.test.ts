@@ -300,3 +300,13 @@ test("config.example.json ships the main bot only, as a comment block that nothi
   assert.equal(check(withBots({ main: bot({ edges: [{ to: "research", allow: ["mcp__vibetts__*"] }] }), research: research() })).ok, true);
   refused(withBots({ main: bot({ edges: [{ to: "research", allow: ["mcp__*"] }] }), research: research() }), /a peer turn never gets "mcp__\*"/);
 });
+
+test("M2 / I58: an owner Telegram bot cannot list a paid preset (only web bots have a spending cap); billing is validated", () => {
+  const route = (id: string) => ({ primary: "lmstudio", allowed: ["lmstudio", id], fallback: [], onAuthRequired: "fallback" });
+  const paid = { ...ACP_CODEX, id: "deepseek", modelId: "deepseek/chat", label: "DeepSeek API", billing: "paid" };
+  const doc = (preset: Record<string, unknown>, id: string) => withBots({ main: bot(), research: research({ route: route(id) }) }, { presets: [...baseSecurity().presets, preset] });
+  refused(doc(paid, "deepseek"), /paid route/);
+  assert.equal(check(withBots({ main: bot(), research: research() }, { presets: [...baseSecurity().presets, paid] })).ok, true, "a paid preset that no Telegram bot uses is fine (the web uses it)");
+  refused(doc({ ...paid, billing: "metered" }, "deepseek"), /billing/);
+  assert.equal(check(doc({ ...ACP_CODEX, billing: "subscription" }, "codex")).ok, true);
+});

@@ -19,14 +19,30 @@ Severity key: HIGH = remote access to another user's data or host power; MEDIUM 
 
 | # | Severity | Risk | Why accepted | Follow-up |
 |---|---|---|---|---|
-| R1 | MEDIUM (REVIEW) | The WebAuthn verifier is hand-written (`webauthn.ts`, ES256, attestation none, user verification required, single-use challenges, counter check) instead of `@simplewebauthn/server`. It is the most security-sensitive new code. | UI-34 asked for a dependency; I57 and the "no installs" rule favour none. It is covered by a software-authenticator suite (rpId, origin, flags, counter, replay, wrong ceremony, wrong algorithm, forged signature) and passkeys are optional: password + TOTP is the baseline. | The owner decides: keep, or swap in the library. Do not rely on passkeys alone until someone has read `webauthn.ts`. |
-| R2 | MEDIUM | T13: the gateway runs as the agent Windows user. A bug in it has that user's rights. | UI-36 (one Windows user). Mitigated: user bots have no host tools by construction, files are confined by `UserFs`, secrets are never loaded into user contexts, the stores are ACL-checked. | A separate Windows user is possible later. |
+| R1 | MEDIUM (REVIEW), ACCEPTED by user 2026-11-01 | The WebAuthn verifier is hand-written (`webauthn.ts`, ES256, attestation none, user verification required, single-use challenges, counter check) instead of `@simplewebauthn/server`. It is the most security-sensitive new code. | UI-34 asked for a dependency; I57 and the "no installs" rule favour none. It is covered by a software-authenticator suite (rpId, origin, flags, counter, replay, wrong ceremony, wrong algorithm, forged signature) and passkeys are optional: password + TOTP is the baseline. | The owner decides: keep, or swap in the library. Do not rely on passkeys alone until someone has read `webauthn.ts`. |
+| R2 | MEDIUM, ACCEPTED by user 2026-11-01 | T13: the gateway runs as the agent Windows user. A bug in it has that user's rights. | UI-36 (one Windows user). Mitigated: user bots have no host tools by construction, files are confined by `UserFs`, secrets are never loaded into user contexts, the stores are ACL-checked. | A separate Windows user is possible later. |
 | R3 | LOW | T3: another process on the PC can imitate the whole serve header shape. | Same as any local malware; the app login is still required. | none |
 | R4 | LOW | Lockout keys for the PC are shared (`client:local`), so a local process can lock the owner's local login (a denial, not an access). | Local foothold needed. | none |
 | R5 | LOW | There is no global cap on open SSE streams, only 3 per user. | Tailnet users are invited people. | add a global cap if the user count grows |
 | R6 | LOW | The web chat engine is not the Pi Harness, so a web turn is not durable across a gateway restart. | The thread is stored; the client re-asks. | none |
-| R8 | MEDIUM | I51 across processes: the gateway is its own process and calls the model endpoints directly, so the local gate (`src/gate`, owner P0 over everything) does not see web turns. The web scheduler gives web turns ONE model slot and orders owner, peer, web and background inside the web process only. Worst case an owner Telegram turn waits behind one running web turn (non-preemptive) plus the runner's own FIFO. | Keeping the gateway out of the owner's runtime was the isolation goal. G6 item (9) measures it live. | If it matters: have the gateway take a gate lease from the agent over the IPC, or run the web chat inside the agent process. |
+| R8 | MEDIUM, ACCEPTED by user 2026-11-01 | I51 across processes: the gateway is its own process and calls the model endpoints directly, so the local gate (`src/gate`, owner P0 over everything) does not see web turns. The web scheduler gives web turns ONE model slot and orders owner, peer, web and background inside the web process only. Worst case an owner Telegram turn waits behind one running web turn (non-preemptive) plus the runner's own FIFO. | Keeping the gateway out of the owner's runtime was the isolation goal. G6 item (9) measures it live. | If it matters: have the gateway take a gate lease from the agent over the IPC, or run the web chat inside the agent process. |
 | R7 | LOW | Clock skew is read from the HTTP `Date` of Tailscale's control server (one HEAD request, tailnet mode only). | A failed request refuses the start (fail closed). | none |
+
+## Checker findings (independent check after S36), all fixed 2026-11-01
+
+| # | Severity | Finding | Fix | Test |
+|---|---|---|---|---|
+| M1 | MEDIUM | Lowering a user's caps or terms did not reach bots that already existed: the stored route and tools were used as saved. | Every turn (send, regenerate, and again when the turn gets the model slot) resolves the route and tools from the CURRENT caps, terms and paid grants (`runtime/route.ts`); out-of-cap links are dropped (the chain falls back with one notice) or the turn is refused with a plain message; the engine re-checks each link before calling it; the toolbox intersects with the current caps. | redteam T14 |
+| M2 | MEDIUM | Paid routes (plan 0a item 6) had no per-bot switch or spending cap. | S38 / I58: `billing: "paid"`, owner-only per-bot grant with per-day and per-month token caps (step-up), ledger, hard stop, audit, UI. | paid.test.ts, engine M2, config I58 |
+| L1 | LOW | Admin target ids looked up in plain objects (`__proto__`). | `recordFor` (user-id pattern + `Object.hasOwn`). | users L1 |
+| L2 | LOW | Lockouts did not notify the owner (`onLockout` not wired). | Content-free notice files in `<control>\owner-notices`, sent by the agent's own bot. | ops L2, phase4-wiring L2 |
+| L3 | LOW | Disable, kill switch and lockdown left running turns running. | `stopAllFor` / `stopAll` hooks. | ops L3 x3 |
+| L4 | LOW | UI step-up offered TOTP only. | Passkey first, code as fallback. | ui L4 |
+| L5 | LOW | Short AT authData gave a 500; one user could fill the challenge store. | Length check; 8 pending challenges per key. | auth L5 x2 |
+| L6 | LOW | An open (unpinned) invite admitted every tailnet login past the generic 403. | Only pinned invites admit; `GET /invite?code=` with a valid code pins an open invite to the presenter. | redteam T2 |
+| L7 | LOW | Refusal keyed by /claude/ in the model id; proxy status only polled. | Provider id on the endpoint; immediate health re-read on 503 / login problems. | engine L7 |
+| L8 | LOW | The gateway loaded every secret, including the Telegram token. | `pickWebSecrets`: model keys only. Chosen over giving the gateway the token for L2 (least privilege). | ops L8 |
+| L9 | LOW | Tests failed under core.autocrlf=true. | `.gitattributes` forces LF. | full suite |
 
 ## Checked and fine
 

@@ -115,7 +115,7 @@ Screens: sign-in / claim / accept-invite; Bots (list + editor); Chat (thread lis
 | T11 | Brute force | Rate limit, lockout, passkeys have no password to brute force |
 | T12 | Privacy: owner reading users' chats, or logs leaking bodies | Audit has hashes only; owner has no chat-read UI (UI-39) |
 | T13 | Gateway compromise reaches owner secrets | Gateway runs with the same Windows user (v1 residual risk, as UI-28); owner secrets are never loaded into user bot contexts; documented; option of a separate Windows user left to UI-36 |
-| T14 | Cost and egress through cloud presets | Presets only by owner caps; owner approval for cloud on non-owner (UI-38) |
+| T14 | Cost and egress through cloud presets | Presets only by owner caps; owner approval for cloud on non-owner (UI-38); every turn re-checks the route and tools against the CURRENT caps, terms and paid grants (existing bots included); paid routes off per bot until the owner sets a daily and monthly cap (I58, S38) |
 
 ## 9. New invariants (continue after I46)
 
@@ -130,6 +130,7 @@ Screens: sign-in / claim / accept-invite; Bots (list + editor); Chat (thread lis
 - **I55** Failing closed: any missing, corrupt or unreadable auth input disables the gateway rather than opening it.
 - **I56** Owner-only actions (invite, caps, delete user, lockdown) require an owner role and a fresh passkey or TOTP confirmation (under 5 minutes old).
 - **I57** The web UI follows I25a (no framework, strict CSP, no innerHTML), and the new gateway adds no dependency other than the WebAuthn verifier if UI-34 says so.
+- **I58** (replaces D12/I39's "a paid API key is never a brain or fallback", user 2026-11-01, section 0a item 6) A paid route is never used unless the owner enabled it for that bot and its cap has headroom; usage is audited. A paid preset is marked `billing: "paid"`; only web bots can be granted one (an owner Telegram bot listing it is refused by the loader, since no cap exists there yet). The route of every turn is computed from the current caps, terms and grants, never from what the bot was saved under.
 
 ## 9a. Anthropic brain through the ACP proxy (steps MA1-MA4, done BEFORE S28)
 
@@ -157,6 +158,7 @@ User steps (nothing run by the agent): **U67** in the proxy app: enable Claude, 
 | S34 | Chat API: threads, messages, SSE streaming with resume, stop, regenerate, approval cards via web for user-scoped approvals, usage and quota | Streaming works against the fake harness; reload restores thread; quota blocks with a clear message; approval token bound to userId | SSE tests, approval-token tests, quota tests |
 | S35 | Web UI `ui/web/`: sign-in/claim/invite, Bots list+editor, Chat, Account, Admin; mobile layout; shared tokens in `ui/common/`; copy step | Screens render against a fake gateway; keyboard and screen-reader basics; Lighthouse-style a11y checklist done by hand | DOM tests (jsdom-free, string assertions as in S18), CSP grep, size budget |
 | S36 | Hardening and review: security review pass over the diff, red-team script of T1-T14 against a local fake tailnet harness, privacy export and delete, docs `deploy/web/README` with the user steps | All T-rows have a passing test or a recorded accepted residual risk | Red-team suite; `npm test`, `check:adapter` stay green |
+| S38 | Paid-route spending caps (section 0a item 6, I58): `billing: "paid"` on a preset; a bot chain of main, cloud fallback, local fallback; every paid route OFF per bot until the OWNER enables it (step-up) with a required per-day and per-month token cap; a per-bot usage ledger; hard stop at the cap (turn refused, or the chain falls back with one notice; the engine clamps `max_tokens` to the headroom and ends the answer when it is used up); audited (`paid_grant`, `paid_usage`, `paid_cap_hit`); shown in the bot editor, the bot cards, the chat usage line and an owner Admin section. Also M1: each turn re-checks route and tools against the CURRENT caps and terms. | A paid route never answers without an owner grant with headroom; lowering caps changes the next turn of existing bots | `test/web/paid.test.ts`, `test/web/redteam.test.ts` T14, `test/web/engine.test.ts` (M2 budget), `test/bots/config.test.ts` (I58 loader) |
 | S37 | Live acceptance (user steps), in this order: L1 web UI on the PC over loopback, L2 Tailscale, L3 Telegram | Gates G6a, G6b and section 15 | U60+ checklist, reordered below |
 
 U60 to U66 (user steps, nothing run by the agent), now in phases. **L1, loopback only, no Tailscale yet:** claim the owner account on the PC at `http://127.0.0.1:47009/claim`; create a bot, pick Sonnet or Opus in the editor, chat, see history after reload (needs MA1 to MA3 and U67 to U70). **L2, Tailscale, after L1 passes:** install Tailscale and sign in; enable MagicDNS and HTTPS certs in the admin console; paste the ACL snippet; run `tailscale-serve.ps1` (dry run, then real) [GO]; invite a second person or a second own device; test from a phone. **L3, Telegram:** section 15.
@@ -249,8 +251,12 @@ Scope of this run: MA2, MA3, MA4 (offline harness), S28 to S36, up to the offlin
 - Full suite `npm test`: 1568 tests, 1558 pass, 9 fail. The 9 failures are exactly the ones that fail on the untouched branch start (baseline 1460 tests, 1450 pass, 9 fail; see deviation 11), so the Milestone 1 count did not drop (+108 tests). The web suite alone (`dist/test/web`) is 94 tests, all passing, including the cross-user isolation tests, the I47 to I57 tests and the red-team suite.
 - `npm run check:adapter`: PASS (adapter boundary and ACP boundary).
 - Scripts: `deploy/web/tailscale-serve.ps1` dry run prints and changes nothing (also tested with a fake `tailscale.cmd`); `check-acl.ps1` and `grant-folder-acls.ps1` rows are covered by script-text tests only (not run elevated).
-- Security review (`security-review.md`): no open HIGH. Four findings fixed (F1 session/identity binding was HIGH, F2 to F4 MEDIUM). Residual MEDIUM risks written down and NOT yet accepted by the user: R1 hand-written WebAuthn verifier (recommend an independent read), R2 same Windows user as the agent, R8 owner priority not enforced across processes.
-- G5 RESULT: every mechanical criterion passes. The clause "no open high or medium" holds only once the user accepts R1, R2 and R8 (or decides to change them), so G5 is a CONDITIONAL PASS.
+- Security review (`security-review.md`): no open HIGH. Four findings fixed (F1 session/identity binding was HIGH, F2 to F4 MEDIUM). Residual MEDIUM risks R1 (hand-written WebAuthn verifier), R2 (same Windows user as the agent) and R8 (owner priority not enforced across processes): **ACCEPTED by the user 2026-11-01**.
+- G5 RESULT: every mechanical criterion passes; R1, R2 and R8 were ACCEPTED by the user on 2026-11-01, so "no open high or medium" holds.
+
+### Checker findings fixed (2026-11-01, after G5)
+
+M1 per-turn route/tools re-check against current caps and terms; M2 paid-route caps (S38, I58); L1 `__proto__`-safe admin lookups; L2 lockout notices to the owner through the agent (control folder `owner-notices`); L3 disable, kill switch and lockdown stop running turns; L4 passkey step-up in the UI; L5 short WebAuthn authData is a 401 and a per-key challenge cap; L6 an open invite admits nobody until its code is presented (then pinned to that login); L7 proxy refusal keyed by provider id and a health re-read on 503; L8 the gateway keeps only the model keys (no Telegram token); L9 `.gitattributes` forces LF. Each has a test that fails before the fix. Details: `security-review.md`, section "Checker findings".
 - UNTESTED (needs the real thing): a real browser (layout, contrast, passkey prompts), a real Tailscale serve/whois, the real proxy and Claude login, Strata under load, the elevated ACL scripts, the Telegram kill-switch path end to end.
 
 ### Deviations from the plan text, and why

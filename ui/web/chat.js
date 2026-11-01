@@ -60,7 +60,8 @@ export async function renderChat(ctx, botId, threadId) {
     if (!u.ok) return;
     meter.setAttribute("max", String(u.data.maxTokensPerDay));
     meter.setAttribute("value", String(Math.min(u.data.tokensToday, u.data.maxTokensPerDay)));
-    meterText.textContent = `${u.data.chatsToday}/${u.data.maxChatsPerDay} messages, ${u.data.tokensToday}/${u.data.maxTokensPerDay} tokens today`;
+    const paid = (u.data.paid || []).filter((p) => p.bot === botId && p.enabled).map((p) => `; ${p.label} (paid): ${p.dayTokens}/${p.perDay} today, ${p.monthTokens}/${p.perMonth} this month${p.headroom === 0 ? " (cap reached)" : ""}`).join("");
+    meterText.textContent = `${u.data.chatsToday}/${u.data.maxChatsPerDay} messages, ${u.data.tokensToday}/${u.data.maxTokensPerDay} tokens today${paid}`;
   };
   const showThread = async () => {
     if (!thread) return clear(log, h("p", { class: "muted" }, "Start a chat below."), (bot.starters || []).map((s) => h("button", { class: "btn btn-small", type: "button", onclick: () => ((input.value = s), input.focus()) }, s)));

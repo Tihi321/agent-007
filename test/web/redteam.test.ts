@@ -587,11 +587,35 @@ test("T14 cost and egress: a Claude model is only reachable through an explicit 
     const list = ok(await n.via(BOB, "POST", "/api/bots/list", { body: {}, headers: as(bob) })).json().bots;
     assert.equal(list[0].cloud, true);
     assert.match(list[0].egressNote, /Claude/);
-    // the owner can lower the cap and the bot stops being creatable
-    n.app.admin.setCaps(Object.entries(n.app.stack.users.read().users).find(([, u]) => u.role === "owner")![0], bob.userId, { ...defaultCaps(), tools: [...USER_TOOL_UNIVERSE] });
+    const cloudBot = list.find((b: { name: string }) => b.name === "Cloud bot").id as string;
+    const solo = (await mk(BOB, bob, { preset: "claude-sonnet", name: "Solo" })).json().bot.id as string; // no local fallback
+    // the owner can lower the cap (models AND tools) and the bot stops being creatable
+    n.app.admin.setCaps(Object.entries(n.app.stack.users.read().users).find(([, u]) => u.role === "owner")![0], bob.userId, { ...defaultCaps(), tools: ["tool_search", "read_file"] });
     n.clock.t += 31_000;
     const again = await enrolLogin(n, BOB, bob);
     assert.equal((await mk(BOB, again, { preset: "claude-sonnet", name: "Third" })).status, 400);
+    // M1: ...and the bots that ALREADY exist follow the lowered cap at the next turn: the Claude bot answers from its local fallback, says
+    // so once, and its tools are cut to the new caps; the Claude-only bot is refused with a plain message and no model is called
+    const calls = n.engine.calls.length;
+    const sent = ok(await n.via(BOB, "POST", "/api/chat/send", { body: { bot: cloudBot, text: "hello" }, headers: as(again) }));
+    assert.equal(sent.status, 200, sent.text);
+    await n.app.chat.settle(bob.userId, sent.json().threadId);
+    const turn = n.engine.calls[calls]!;
+    assert.equal(turn.bot.route.primary, "strata");
+    assert.ok(!turn.bot.route.allowed.includes("claude-sonnet"), "the Claude preset is not in the turn's route at all");
+    assert.deepEqual(turn.tools.map((t) => t.name).sort(), ["read_file", "tool_search"], "write_file and remember were taken away with the cap");
+    assert.deepEqual([...turn.bot.tools].sort(), ["read_file", "tool_search"]);
+    const th = ok(await n.via(BOB, "POST", "/api/chat/thread/get", { body: { bot: cloudBot, thread: sent.json().threadId }, headers: as(again) })).json().thread;
+    assert.match(th.messages.at(-1).notice, /no longer allowed for your account/);
+    const refused = ok(await n.via(BOB, "POST", "/api/chat/send", { body: { bot: solo, text: "hello" }, headers: as(again) }));
+    assert.equal(refused.status, 403);
+    assert.match(refused.json().message, /no longer available to your account/);
+    assert.equal(n.engine.calls.length, calls + 1, "no model call for the refused bot");
+    // regenerate follows the same rule
+    const regen = ok(await n.via(BOB, "POST", "/api/chat/regenerate", { body: { bot: cloudBot, thread: sent.json().threadId }, headers: as(again) }));
+    assert.equal(regen.status, 200, regen.text);
+    await n.app.chat.settle(bob.userId, sent.json().threadId);
+    assert.equal(n.engine.calls.at(-1)!.bot.route.primary, "strata");
   } finally {
     await n.close();
   }

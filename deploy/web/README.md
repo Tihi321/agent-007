@@ -32,7 +32,8 @@ Passkeys: they work at `http://localhost:47009` (not at `127.0.0.1`, an IP addre
 4. [GO] `powershell deploy\web\tailscale-serve.ps1 -Apply` publishes the gateway. `... -Remove -Apply` takes it down. Check with `tailscale serve status`: it must list only port 47009 and no Funnel.
 5. Sign in at `https://<name>.<tailnet>.ts.net` from your phone (add a passkey in Account if you like).
 6. Invite someone: Admin, "Invite someone", enter their Tailscale login (recommended). Send the one-time link yourself (it is shown once, works once, 24 hours). They open it from their own tailnet device and set up a password + authenticator or a passkey. An invite without a pinned login admits nobody until the link (with its code) is opened; the first tailnet login that opens it becomes the only one that can use it, and everyone else keeps getting the generic 403.
-7. Revoke: Admin, "Disable" ends their sessions at once and keeps their data for 30 days, then deletes it. "Delete" (typed confirmation) removes it now.
+7. Paid routes (optional): a preset marked `"billing": "paid"` (DeepSeek API, Anthropic API credits, Gemini through the proxy) is off for every bot. In Admin, "Paid routes", enable it for one bot with a tokens-per-day and a tokens-per-month cap (needs a fresh confirmation). At the cap the bot falls back to its next model or refuses with a message; usage is in the audit and on the chat page. Telegram bots cannot use a paid preset.
+8. Revoke: Admin, "Disable" ends their sessions at once and keeps their data for 30 days, then deletes it. "Delete" (typed confirmation) removes it now.
 
 ## What a user can and cannot do
 

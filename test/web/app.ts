@@ -31,9 +31,11 @@ const local = (id: string): PresetConfig => ({ id, kind: "local", runner: "strat
 export const PRESETS: PresetConfig[] = [
   local("strata"),
   { id: "claude-sonnet", kind: "acp", baseUrl: "http://127.0.0.1:8787/v1", providerId: "claude", apiKeyRef: "proxyApiKey", label: "Claude Sonnet", modelId: "claude/sonnet", contextWindow: 200000, maxTokens: 8192, privacy: "cloud", autoFallback: false },
+  // M2: a paid route (Anthropic API credits through the proxy); off for every bot until the owner enables it with caps
+  { id: "claude-api", kind: "acp", baseUrl: "http://127.0.0.1:8787/v1", providerId: "claude", apiKeyRef: "proxyApiKey", label: "Claude API credits", modelId: "claude/sonnet", contextWindow: 200000, maxTokens: 8192, privacy: "cloud", autoFallback: false, billing: "paid" },
 ];
 
-export type Handler = (t: EngineTurn, n: number) => Promise<{ stopReason?: "stop" | "aborted" | "error"; usage?: { input: number; output: number }; error?: string } | void>;
+export type Handler = (t: EngineTurn, n: number) => Promise<{ stopReason?: "stop" | "aborted" | "error"; usage?: { input: number; output: number }; error?: string; servedBy?: string } | void>;
 
 export class ScriptedEngine implements ChatEngine {
   calls: EngineTurn[] = [];
@@ -49,7 +51,7 @@ export class ScriptedEngine implements ChatEngine {
     this.maxRunning = Math.max(this.maxRunning, this.running);
     try {
       const r = (await this.handler(t, this.calls.length)) ?? {};
-      return { stopReason: r.stopReason ?? "stop", usage: r.usage ?? { input: 10, output: 5 }, ...(r.error ? { error: r.error } : {}) };
+      return { stopReason: r.stopReason ?? "stop", usage: r.usage ?? { input: 10, output: 5 }, ...(r.error ? { error: r.error } : {}), servedBy: r.servedBy ?? t.bot.route.primary };
     } finally {
       this.running--;
     }

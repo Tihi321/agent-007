@@ -15,6 +15,7 @@ import { watchKillSwitch } from "./killswitch.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { chatRoutes } from "./routes/chat.js";
+import { paidAdminRoutes } from "./routes/paid.js";
 import { privacyRoutes } from "./routes/privacy.js";
 import { TurnScheduler } from "./runtime/scheduler.js";
 import { GatewayStartError, checkStartup, startGateway } from "./server.js";
@@ -117,7 +118,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     identify,
     admit: admin.admit,
     presentInvite: admin.presentInvite,
-    routes: { ...authRoutes(stack, { onLockdown: () => void chat.stopAll() }), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin) },
+    routes: { ...authRoutes(stack, { onLockdown: () => void chat.stopAll() }), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin), ...paidAdminRoutes(stack, chat, o.presets) },
     ...(assets ? { assets } : {}),
     now,
     ...(watch ? { lockedDown: watch.lockedDown } : {}),
