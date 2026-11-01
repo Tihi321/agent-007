@@ -11,6 +11,7 @@ import type { WebAudit } from "./audit.js";
 import { ApprovalBroker } from "./chat/approvals.js";
 import type { ChatEngine } from "./chat/engine.js";
 import { ChatService } from "./chat/service.js";
+import type { PresetCatalog } from "./models/catalog.js";
 import { watchKillSwitch } from "./killswitch.js";
 import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
@@ -35,6 +36,8 @@ export interface WebAppOptions {
   publicHosts: string[];
   presets: () => readonly PresetConfig[];
   terms: () => TermsAccepted;
+  /** MS2: the live preset catalogue (security.json + Models page). Routes of MS4 use it; `presets`/`terms` stay functions so tests can inject plain lists. */
+  catalog?: PresetCatalog;
   engine: ChatEngine;
   whois?: WhoisFn;
   serveStatus?: () => Promise<string | undefined> | string | undefined;
@@ -59,6 +62,7 @@ export interface WebApp {
   stack: WebStack;
   admin: UserAdmin;
   chat: ChatService;
+  catalog?: PresetCatalog;
   close(): Promise<void>;
 }
 
@@ -130,6 +134,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     stack,
     admin,
     chat,
+    ...(o.catalog ? { catalog: o.catalog } : {}),
     close: async () => {
       for (const u of Object.keys(stack.users.read().users)) chat.stopAllFor(u);
       watch?.stop();

@@ -11,12 +11,11 @@
  *                 version is too old, or the clock is off. Identity headers are trusted only after `tailscale whois` agrees.
  */
 import { execFile } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { mkdirSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { derivedPresets } from "../agent/multibot.js";
-import { isPaidPreset, parseBots, termsOf } from "../bots/schema.js";
-import type { PresetConfig, TermsAccepted } from "../bots/schema.js";
+import { parseBots, termsOf } from "../bots/schema.js";
 import { loadConfig, missingConfigMessage } from "../config/load.js";
 import type { Config } from "../config/schema.js";
 import { loadSecrets } from "../config/secrets.js";
@@ -29,8 +28,11 @@ import { startWebApp } from "./app.js";
 import type { WebApp } from "./app.js";
 import { createWebAudit } from "./audit.js";
 import { createOpenAiEngine } from "./chat/openaiEngine.js";
-import type { ModelEndpoint } from "./chat/openaiEngine.js";
+import { sha256Hex, SecretBox } from "./crypto.js";
+import { createPresetCatalog, endpointResolver } from "./models/catalog.js";
+import type { SecuritySnapshot } from "./models/catalog.js";
 import { webPaths } from "./paths.js";
+import { loadOrCreateKey } from "./stack.js";
 import { GATEWAY_PORT, MIN_TAILSCALE_VERSION, cliWhois, meetsMinVersion } from "./tailscale.js";
 
 export interface WebCli {
@@ -77,21 +79,8 @@ export function pickWebSecrets(s: Secrets): WebSecrets {
   return { ...(s.lmStudioApiToken !== undefined ? { lmStudioApiToken: s.lmStudioApiToken } : {}), ...(s.strataApiKey !== undefined ? { strataApiKey: s.strataApiKey } : {}), ...(s.proxyApiKey !== undefined ? { proxyApiKey: s.proxyApiKey } : {}) };
 }
 
-/** Where each preset is reached: local presets at their runner's URL, proxy presets at the proxy URL with the proxy key. */
-export function endpointResolver(config: Pick<Config, "model">, secrets: Pick<Secrets, "lmStudioApiToken" | "strataApiKey" | "proxyApiKey">, presets: readonly PresetConfig[]): (id: string) => ModelEndpoint | undefined {
-  return (id) => {
-    const p = presets.find((x) => x.id === id);
-    if (!p) return undefined;
-    if (p.kind === "acp") {
-      if (!p.baseUrl) return undefined;
-      return { baseUrl: p.baseUrl, apiKey: secrets.proxyApiKey, modelId: p.modelId, maxTokens: p.maxTokens, viaProxy: true, providerId: p.providerId, ...(isPaidPreset(p) ? { paid: true } : {}), label: p.label };
-    }
-    const runner = p.runner ? (config.model.runners as Record<string, { baseUrl: string } | undefined>)[p.runner] : undefined;
-    if (!runner) return undefined;
-    const apiKey = p.runner === "lmstudio" ? secrets.lmStudioApiToken : p.runner === "strata" ? secrets.strataApiKey : undefined;
-    return { baseUrl: runner.baseUrl, apiKey, modelId: p.modelId, maxTokens: p.maxTokens, viaProxy: false, label: p.label };
-  };
-}
+/** Moved to `models/catalog.ts` (the catalogue resolves custom presets too); re-exported for the tests. */
+export { endpointResolver };
 
 function run(file: string, args: string[], timeoutMs = 10_000): Promise<string | undefined> {
   return new Promise((res) => {
@@ -147,29 +136,44 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
   // Lockout notices reach the owner through the agent: startWebApp writes them to the control folder, the agent's own bot sends them (least privilege).
   const secrets: WebSecrets = pickWebSecrets(loadSecrets({ secretsPath: cli.secretsPath, runner: early.model.runner, ...(strataFile ? { strataConfigFile: strataFile } : {}), checkAcl: cli.checkAcl }).secrets);
   const { config, settings } = loadConfig({ configPath: cli.configPath, secrets });
-  const bots = parseBots(settings.security, { folderAllow: config.folders.allow, derivedPresets: derivedPresets(config), defaultPreset: ((settings.security?.["model"] ?? {}) as { defaultPreset?: string }).defaultPreset ?? config.model.runner });
-  const presets: PresetConfig[] = bots.presets;
-  const terms: TermsAccepted = termsOf(bots);
+  const webDir = webPaths(config.paths.dataDir);
+  mkdirSync(webDir.webDir, { recursive: true });
+  // I62: the same loadConfig + parseBots path as boot, run again when security.json changes (read-only; the gateway never writes it, I25)
+  const loadSecurity = (): SecuritySnapshot => {
+    const l = loadConfig({ configPath: cli.configPath, secrets });
+    const b = parseBots(l.settings.security, { folderAllow: l.config.folders.allow, derivedPresets: derivedPresets(l.config), defaultPreset: ((l.settings.security?.["model"] ?? {}) as { defaultPreset?: string }).defaultPreset ?? l.config.model.runner });
+    return { presets: b.presets, terms: termsOf(b), config: l.config };
+  };
+  const securityHash = (): string => {
+    try {
+      return sha256Hex(readFileSync(settings.paths.securityFile));
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return "";
+      throw e;
+    }
+  };
   const redact = createRedactor([secrets.lmStudioApiToken, secrets.strataApiKey, secrets.proxyApiKey].filter((v): v is string => typeof v === "string" && v !== ""));
   const dataDir = config.paths.dataDir;
   const audit = createWebAudit({ dir: webPaths(dataDir).auditDir, redact });
   const status = new ProxyStatus();
-  const proxyPreset = presets.find((p) => p.kind === "acp" && p.baseUrl);
+  // MS2: one catalogue of the security.json presets and the Models page presets; every reader below asks it per call
+  const catalog = createPresetCatalog({ dataDir, box: new SecretBox(loadOrCreateKey(webDir.keyFile)), audit, secrets, loadSecurity, securityHash });
+  const hasProxyPreset = (): boolean => catalog.presets().some((p) => p.kind === "acp" && p.baseUrl);
   const watchProxy = async (): Promise<void> => {
+    if (!hasProxyPreset()) return;
     try {
-      const ep = proxyEndpoint(proxyPreset?.baseUrl ? { baseUrl: proxyPreset.baseUrl } : { port: DEFAULT_PROXY_PORT });
+      const url = catalog.sources().find((s) => s.id === "acp-proxy")?.baseUrl;
+      const ep = proxyEndpoint(url ? { baseUrl: url } : { port: DEFAULT_PROXY_PORT });
       const h = await fetchHealth(ep, { timeoutMs: 3000 });
       if (h.ok) for (const p of h.health.providers) status.noteAuthMethod(p.id, p.authMethod);
     } catch {
       /* the proxy being down is handled per call */
     }
   };
-  if (proxyPreset) {
-    await watchProxy();
-    setInterval(() => void watchProxy(), 60_000).unref();
-  }
+  await watchProxy();
+  setInterval(() => void watchProxy(), 60_000).unref();
   const refresher = proxyRefresher(watchProxy);
-  const engine = createOpenAiEngine({ endpoint: endpointResolver(config, secrets, presets), status, log: (l) => out(redact(l)), ...(proxyPreset ? { onProxyTrouble: () => void refresher.refresh() } : {}) });
+  const engine = createOpenAiEngine({ endpoint: (id) => catalog.endpoint(id), status, log: (l) => out(redact(l)), onProxyTrouble: () => void refresher.refresh() });
 
   // the kill switch flag is shared with the Telegram agent through the control folder
   const tsExe = cli.tailscale;
@@ -183,8 +187,9 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
     port: cli.port,
     mode: cli.mode,
     publicHosts: cli.publicHost ? [cli.publicHost] : [],
-    presets: () => presets,
-    terms: () => terms,
+    presets: () => catalog.presets(),
+    terms: () => catalog.terms(),
+    catalog,
     engine,
     audit,
     controlDir: config.paths.controlDir,
@@ -202,6 +207,7 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
   return {
     app,
     stop: async () => {
+      catalog.close();
       await app.close();
     },
   };

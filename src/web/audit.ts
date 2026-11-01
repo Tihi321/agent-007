@@ -38,6 +38,15 @@ export const AUDIT_KINDS = [
   "paid_usage",
   "paid_cap_hit",
   "route_changed",
+  "models_fetch",
+  "models_add",
+  "models_update",
+  "models_remove",
+  "models_source_add",
+  "models_source_update",
+  "models_source_remove",
+  "models_saved",
+  "models_reload",
 ] as const;
 export type AuditKind = (typeof AUDIT_KINDS)[number];
 

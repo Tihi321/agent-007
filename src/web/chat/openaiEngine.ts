@@ -26,6 +26,8 @@ export interface ModelEndpoint {
   /** M2: a paid route (billed per use). The API-key refusal of MA2 does not apply to it; its spending cap does. */
   paid?: boolean | undefined;
   label: string;
+  /** I60: checked before EVERY request (custom cloud sources: https + `checkUrl`). A returned string is a refusal: the link counts as `down` and the chain falls to the next preset. */
+  preflight?: (() => Promise<string | undefined>) | undefined;
 }
 
 export interface OpenAiEngineOptions {
@@ -74,6 +76,15 @@ export function createOpenAiEngine(o: OpenAiEngineOptions): ChatEngine {
       ...(tools.length > 0 ? { tools: tools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) } : {}),
     };
     let res: Awaited<ReturnType<typeof doFetch>>;
+    if (ep.preflight) {
+      let refusal: string | undefined;
+      try {
+        refusal = await ep.preflight();
+      } catch {
+        refusal = "the address check failed";
+      }
+      if (refusal !== undefined) throw new Failed(failureOf("down")); // the fixed "not reachable" notice; the reason is never shown to the chat
+    }
     try {
       res = await doFetch(`${ep.baseUrl.replace(/\/+$/, "")}/chat/completions`, {
         method: "POST",
