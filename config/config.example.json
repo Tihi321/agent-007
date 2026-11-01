@@ -1,0 +1,113 @@
+{
+  "_comment": "Example only. Copy to C:\\ProgramData\\agent-007\\config\\config.json and edit every CHANGE-ME value. Keys starting with an underscore are ignored. Secrets (bot token, LM Studio token, Strata key) never go in this file: deploy\\new-secrets.ps1 writes them to secrets.json.",
+  "telegram": {
+    "_comment": "UI-4: your numeric Telegram user id (scripts\\whoami-telegram.ts prints it). Replace the placeholder.",
+    "allowedUserIds": [123456789]
+  },
+  "model": {
+    "_comment": "runner is lmstudio or strata (decided at Gate G0, UI-10). Both blocks may stay. Every baseUrl must be loopback.",
+    "runner": "lmstudio",
+    "runners": {
+      "lmstudio": {
+        "baseUrl": "http://127.0.0.1:1234/v1",
+        "modelId": "nail-qwen3.6-35b-a3b-mtp",
+        "contextWindow": 73728,
+        "maxTokens": 4096
+      },
+      "strata": {
+        "baseUrl": "http://127.0.0.1:8080/v1",
+        "modelId": "qwen3.8-flash-next-iq3_s",
+        "contextWindow": 131072,
+        "maxTokens": 8192,
+        "installDir": "D:\\Strata",
+        "dataDir": "D:\\Strata-data",
+        "configFile": "C:\\ProgramData\\agent-007\\strata\\strata.json",
+        "logDir": "C:\\ProgramData\\agent-007\\logs"
+      }
+    },
+    "streamTimeoutMs": 600000,
+    "retry": {
+      "enabled": true,
+      "maxRetries": 50,
+      "baseDelayMs": 2000,
+      "maxAgentDelayMs": 60000
+    }
+  },
+  "folders": {
+    "_comment": "UI-1: the folders the agent may read, list and search ({alias, absolute path}). UI-2: paths to deny (Pixotope and work data); a deny always wins. Both lists are yours to fill in; nothing is pre-filled.",
+    "allow": [
+      { "alias": "documents", "path": "C:\\Users\\CHANGE-ME\\Documents" }
+    ],
+    "deny": []
+  },
+  "shell": {
+    "enabled": true,
+    "approvalTimeoutSec": 600,
+    "execTimeoutSec": 120,
+    "maxExecTimeoutSec": 600,
+    "maxOutputBytes": 65536,
+    "returnBytes": 8192
+  },
+  "paths": {
+    "_comment": "The agent data root is under the agent user's profile. Change agent007 here if you used another account name.",
+    "programDataDir": "C:\\ProgramData\\agent-007",
+    "dataDir": "C:\\Users\\agent007\\AppData\\Local\\agent-007",
+    "stateDir": "C:\\Users\\agent007\\AppData\\Local\\agent-007\\state",
+    "workspaceDir": "C:\\Users\\agent007\\AppData\\Local\\agent-007\\workspace",
+    "memoryFile": "C:\\Users\\agent007\\AppData\\Local\\agent-007\\memory\\MEMORY.md",
+    "userFile": "C:\\ProgramData\\agent-007\\config\\USER.md",
+    "logsDir": "C:\\Users\\agent007\\AppData\\Local\\agent-007\\logs",
+    "auditDir": "C:\\Users\\agent007\\AppData\\Local\\agent-007\\audit",
+    "controlDir": "C:\\Users\\agent007\\AppData\\Local\\agent-007\\control",
+    "runDir": "C:\\Users\\agent007\\AppData\\Local\\agent-007\\run"
+  },
+  "limits": {
+    "readFileBytes": 32768,
+    "searchMaxFiles": 5000,
+    "listMaxEntries": 500,
+    "searchMaxResults": 200
+  },
+  "mainUserProfile": "C:\\Users\\CHANGE-ME",
+  "mcp": {
+    "_comment": "Phase 2 (S9.4). creative-hub MCP servers the agent may call. Every MCP tool is deferred (found through tool_search); allowTools is the allowlist, anything else a server lists is dropped. Every url must be http on 127.0.0.1 or localhost. Leave servers empty until you list them. book-translator is not listed by default (it needs a bearer token, I20).",
+    "servers": [],
+    "_example": { "id": "vibetts", "url": "http://127.0.0.1:CHANGE-ME/mcp", "allowTools": ["CHANGE-ME"], "macros": [], "callTimeoutSec": 300 },
+    "callTimeoutSec": 300
+  },
+  "jobs": {
+    "_comment": "Phase 2. ipcPort is the job runner's loopback port (the job runner reads the same value from its own jobrunner.json). approvalTimeoutSec is the Telegram approval timeout for a job or an in-job permission (it rejects on expiry). progressIntervalSec is the minimum time between edits of the progress message.",
+    "ipcPort": 47007,
+    "approvalTimeoutSec": 1800,
+    "progressIntervalSec": 30
+  },
+  "flow": {
+    "_comment": "Phase 2. The id (in mcp.servers) of the Flow music/video server. The Flow guard blocks any call without max_credits and any call outside an approved Flow job (D11).",
+    "serverId": "flow-music-mcp"
+  },
+  "tools": {
+    "_comment": "Phase 2. Nothing to configure: the always-loaded tool list is a code constant (exactly 10, I27) and config cannot add to it. Every other tool is deferred behind tool_search."
+  },
+  "secondOpinion": {
+    "_comment": "Phase 2, OFF and unbuilt unless you explicitly say yes (UI-15, I23): it is a cloud call by the agent outside a job. baseUrl must be loopback; the port comes from the proxy's own settings (U52).",
+    "enabled": false,
+    "baseUrl": "http://127.0.0.1:8787/v1",
+    "modelId": ""
+  },
+  "_bots": {
+    "_comment": "Phase 4 (S20). NOTHING reads this block: bots live in security.json, which only the settings UI writes (never config.json). It shows the ONE bot a new install has, main (the existing agent), to enter in the settings UI after you run scripts\\migrate-bots (it copies the Phase 1 to 3 state into bots\\main and leaves the old files). Without a bots section the install behaves exactly as before. More bots are added in the UI, each with its own token (deploy\\new-secrets.ps1 -Bots <id>), route, tool allowlist, folders (inside the folders above, never overlapping folders.deny) and edges. A bot with no edge has no ask_bot and no list_bots; at most one bot may have shell; a bot with a proxy preset in its route reads only its cloudSafeRoots unless you relax that in the UI.",
+    "main": {
+      "description": "The main agent",
+      "telegramTokenRef": "main",
+      "route": { "primary": "lmstudio", "allowed": ["lmstudio"], "fallback": [], "onAuthRequired": "fallback" },
+      "tools": [
+        "tool_search", "dispatch_job", "job_status", "cancel_job", "list_templates", "ask_user", "hub_status", "system_facts", "list_dir", "read_file",
+        "search_files", "write_file", "remember", "shell", "hub_start", "get_settings", "list_personas", "propose_setting", "propose_persona", "switch_persona",
+        "tts_line", "chiptune_loop", "comfy_image", "mcp__*"
+      ],
+      "readRoots": [{ "alias": "documents", "path": "C:\\Users\\CHANGE-ME\\Documents" }],
+      "cloudSafeRoots": [],
+      "shared": { "read": false },
+      "edges": []
+    }
+  }
+}

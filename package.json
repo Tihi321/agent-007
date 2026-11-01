@@ -1,0 +1,50 @@
+{
+  "name": "agent-007",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Personal 24/7 agent on Pi Durable 1.4.0 with a local model runner and a Telegram bridge",
+  "engines": {
+    "node": ">=24.14.0 <25"
+  },
+  "scripts": {
+    "build": "tsc -p . && node scripts/settings/copy-ui.mjs",
+    "test": "node --test \"dist/test/**/*.test.js\"",
+    "check:adapter": "node dist/scripts/check-adapter-boundary.js",
+    "smoke:all": "node dist/scripts/smoke/run-all.js",
+    "smoke:s1": "node dist/scripts/smoke/s1-sqlite.js",
+    "smoke:s2": "node dist/scripts/smoke/s2-roundtrip.js",
+    "smoke:s3": "node dist/scripts/smoke/s3-toolcall.js",
+    "smoke:s4": "node dist/scripts/smoke/s4-crash-resume.js",
+    "smoke:s5": "node dist/scripts/smoke/s5-long-hook.js",
+    "smoke:s6": "node dist/scripts/smoke/s6-stream-timeout.js",
+    "smoke:s7": "node dist/scripts/smoke/s7-runner-down.js",
+    "smoke:soak": "node dist/scripts/smoke/soak-probe.js",
+    "bakeoff": "node dist/scripts/bakeoff/run.js",
+    "e2e:runner": "node dist/scripts/e2e-runner.js",
+    "start": "node dist/src/main.js",
+    "jobrunner": "node dist/src/jobrunner/main.js",
+    "routing-eval": "node dist/scripts/routing-eval/run.js",
+    "multibot-eval": "node dist/scripts/multibot-eval/run.js",
+    "settings-eval": "node dist/scripts/settings-eval/run.js",
+    "migrate-settings": "node dist/scripts/migrate-settings.js",
+    "migrate-bots": "node dist/scripts/migrate-bots.js",
+    "dsh:probe": "node dist/src/jobrunner/drivers/dsh/probeCli.js",
+    "proxy:check": "node dist/src/proxy/setupCheck.js",
+    "verify-audit": "node dist/scripts/settings/verify-audit.js"
+  },
+  "dependencies": {
+    "@agentclientprotocol/sdk": "2.0.2",
+    "@earendil-works/chord": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-durable": "1.4.0",
+    "@earendil-works/pi-mcp": "1.4.0",
+    "grammy": "1.46.0",
+    "typebox": "1.3.27",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

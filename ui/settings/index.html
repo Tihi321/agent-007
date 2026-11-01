@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>agent-007 settings</title>
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/app.css">
+</head>
+<body>
+  <a class="skip" href="#main">Skip to content</a>
+
+  <section id="login" class="login" aria-labelledby="login-title">
+    <form id="login-form" class="card login-card" autocomplete="off">
+      <img class="login-icon" src="/icon.svg" alt="" width="48" height="48">
+      <h1 id="login-title">agent-007 settings</h1>
+      <p class="muted">Sign in with the one-time link from <code>settings-link</code>. Run it in your own terminal on this PC, then open the link it prints. Or paste the code here.</p>
+      <div class="field">
+        <label for="login-code">One-time code</label>
+        <input id="login-code" name="code" type="password" autocomplete="off" spellcheck="false" required>
+      </div>
+      <p id="login-error" class="banner banner-error" role="alert" hidden></p>
+      <button class="btn btn-primary" type="submit">Sign in</button>
+      <p class="muted small">This page only works on this PC (127.0.0.1). The code works once and expires after five minutes.</p>
+    </form>
+  </section>
+
+  <div id="app" class="app" hidden>
+    <header class="topbar">
+      <div class="brand"><img src="/icon.svg" alt="" width="28" height="28"><span>agent-007 settings</span></div>
+      <div class="topbar-actions">
+        <span id="status-chip" class="badge" hidden></span>
+        <button id="theme-toggle" class="btn btn-quiet" type="button" aria-label="Switch colour theme">Theme</button>
+        <button id="logout" class="btn btn-quiet" type="button">Sign out</button>
+      </div>
+    </header>
+    <div class="layout">
+      <nav id="nav" class="nav" aria-label="Settings sections"></nav>
+      <main id="main" class="main" tabindex="-1"></main>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+  <noscript><p class="banner banner-error">The settings page needs JavaScript. It loads nothing from the internet.</p></noscript>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>

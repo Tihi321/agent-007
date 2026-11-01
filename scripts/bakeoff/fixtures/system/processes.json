@@ -1,0 +1,34 @@
+{
+  "processes": [
+    {
+      "name": "chrome.exe",
+      "pid": 4120,
+      "memoryMB": 2310
+    },
+    {
+      "name": "Code.exe",
+      "pid": 8812,
+      "memoryMB": 1544
+    },
+    {
+      "name": "Teams.exe",
+      "pid": 6320,
+      "memoryMB": 1102
+    },
+    {
+      "name": "explorer.exe",
+      "pid": 2204,
+      "memoryMB": 612
+    },
+    {
+      "name": "slack.exe",
+      "pid": 7716,
+      "memoryMB": 588
+    },
+    {
+      "name": "Spotify.exe",
+      "pid": 9004,
+      "memoryMB": 301
+    }
+  ]
+}
