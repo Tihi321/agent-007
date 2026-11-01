@@ -1,0 +1,50 @@
+{
+  "_comment": "Example only. The installer (deploy\\jobrunner\\install-jobrunner.ps1) copies this to C:\\ProgramData\\agent-007\\jobrunner\\jobrunner.json if there is none. The agent user cannot read that folder. Keys starting with an underscore are ignored; an unknown key is an error. There is no setting for the bind address: the job runner listens on 127.0.0.1 only. The HMAC key and the DeepSeek key live in the job runner's own secrets.json (main user only), never in this file.",
+  "ipcPort": 47007,
+  "paths": {
+    "_comment": "dataDir defaults to %LOCALAPPDATA%\\agent-007-jobrunner of the user the job runner runs as (journal, audit, logs, secrets.json). templatesDir defaults to <configDir>\\templates.",
+    "configDir": "C:\\ProgramData\\agent-007\\jobrunner"
+  },
+  "cwdAllowlist": ["C:\\projects\\Personal\\creative-hub"],
+  "denyPaths": [
+    "C:\\Pixotope",
+    "C:\\ProgramData\\agent-007"
+  ],
+  "limits": {
+    "_comment": "I18: one Claude job and one DeepSeek job at a time, more are queued. dailyCreditCap 0 means no Flow job may run (no default budget, D11): set it when you want Flow jobs. A template's flow.maxCredits is the per-job cap; perTemplateMaxCredits can only lower it.",
+    "dailyJobCap": 20,
+    "dailyCreditCap": 0,
+    "perTemplateMaxCredits": {},
+    "maxConcurrent": { "claude": 1, "dsh": 1, "hub": 1 },
+    "maxDurationMin": 360,
+    "outputCapBytes": 5242880,
+    "maxEventTextChars": 8000,
+    "permissionTimeoutSec": 1800,
+    "cancelGraceSec": 10
+  },
+  "engines": {
+    "_comment": "dsh stays off until the S13.2 live probe proved that dsh asks before running a command; only then set enabled and verified to true, and enable the dsh template(s) one by one.",
+    "claude": { "_comment": "Optional path: the absolute path of the real claude.exe (never a .cmd or a shell). Without it claude is looked up on the main user's PATH. The version guard (S12.5) holds jobs on a new claude version until the list-runs probe job succeeds once.", "enabled": true },
+    "dsh": { "enabled": false, "verified": false },
+    "hub": { "enabled": true }
+  },
+  "hub": {
+    "_comment": "hub_start / hub_status run exactly: pwsh -NoProfile -File <dir>\\scripts\\hub.ps1 start|status <service>. The service ids are a FIXED list: either here, or read from creative-hub's services.json when servicesFile is set. Ports (optional) make hub_status use a TCP probe.",
+    "dir": "C:\\projects\\Personal\\creative-hub",
+    "services": [],
+    "pwsh": "pwsh",
+    "ports": {},
+    "startTimeoutSec": 120,
+    "statusTimeoutSec": 30
+  },
+  "flow": { "serverId": "flow-music-mcp" },
+  "settingsUi": {
+    "_comment": "Phase 3 (S18). The settings UI is hosted by the job runner (main user), on 127.0.0.1 only: a non-loopback host or a port equal to ipcPort is refused, and there is no LAN or tunnel mode. Off until you turn it on. Sign in with `node dist\\src\\jobrunner\\main.js settings-link` (a one-time code); `settings-link --revoke` ends every session. 47008 is the default because 47007 is the IPC port. agentUser is only used to name a new allowed folder that has no NTFS grant (the UI never changes permissions).",
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 47008,
+    "sessionIdleMin": 30,
+    "sessionMaxHours": 8,
+    "agentUser": "agent007"
+  }
+}

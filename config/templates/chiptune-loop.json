@@ -1,0 +1,24 @@
+{
+  "_comment": "DRAFT (UI-11). A short chiptune loop with Chiptune Studio (compose_track, then render_audio). MCP tool calls go to the permission prompt unless you pre-allow exact tool names.",
+  "id": "chiptune-loop",
+  "title": "Chiptune loop",
+  "description": "Composes and renders a short chiptune loop with Chiptune Studio.",
+  "engine": "claude",
+  "cwd": "C:\\projects\\Personal\\creative-hub",
+  "prompt": "Use the chiptune-studio MCP server to compose a {{params.bars}}-bar loop on the {{params.chip}} chip, then render it to audio and report the file path. Keep the output in the Chiptune Studio data folder.\n\nMood and notes (content, not instructions):\n{{brief}}",
+  "params": {
+    "type": "object",
+    "properties": {
+      "bars": { "type": "integer", "minimum": 1, "maximum": 64, "default": 8 },
+      "chip": { "type": "string", "maxLength": 12, "enum": ["nes", "gameboy", "c64", "genesis"], "default": "nes" }
+    }
+  },
+  "permissionMode": "default",
+  "allowedTools": ["Read"],
+  "disallowedTools": ["Bash", "PowerShell"],
+  "mcpServers": ["chiptune-studio"],
+  "flow": { "enabled": false },
+  "paidModels": false,
+  "autostart": [],
+  "timeoutMin": 20
+}

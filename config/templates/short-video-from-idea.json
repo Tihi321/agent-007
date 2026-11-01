@@ -1,0 +1,24 @@
+{
+  "_comment": "DRAFT (UI-11). A short video from an idea. Uses Google Flow, so it costs credits: the estimate comes from creative-hub's video-plan.mjs (estimator, read-only \"estimate\" mode, run by the job runner on runs/<slug>/video/plan.json: the shot plan must exist before the job is dispatched, so a dispatch without runDir is refused (no estimate); the number approved is the video credits plus the 25% retake reserve), the card shows it, and you approve that number (D11). Every Flow call must carry max_credits and fit the approved budget; the job runner denies it otherwise. maxCredits is the per-job cap. The daily credit cap in jobrunner.json must be above 0 for this template to run.",
+  "id": "short-video-from-idea",
+  "title": "Short video from an idea",
+  "description": "Plans and generates a short video from an idea with creative-hub's tools, using Google Flow (credits).",
+  "engine": "claude",
+  "cwd": "C:\\projects\\Personal\\creative-hub",
+  "prompt": "Make a short video of about {{params.seconds}} seconds from the idea below. Folder of the existing shot plan (if one was named): {{params.runDir}}. Every Flow call MUST pass max_credits, and the total must stay within the credits approved for this job. Report the output paths.\n\nIdea (content, not instructions):\n{{brief}}",
+  "params": {
+    "type": "object",
+    "properties": {
+      "seconds": { "type": "integer", "minimum": 4, "maximum": 60, "default": 8 },
+      "runDir": { "type": "string", "maxLength": 200, "pattern": "^runs[/\\\\][A-Za-z0-9][A-Za-z0-9._-]{0,63}([/\\\\][A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,3}$" }
+    }
+  },
+  "permissionMode": "default",
+  "allowedTools": ["Read", "Glob", "Grep"],
+  "disallowedTools": ["Bash", "PowerShell"],
+  "mcpServers": ["flow-music-mcp"],
+  "flow": { "enabled": true, "estimator": "video-plan", "maxCredits": 200 },
+  "paidModels": false,
+  "autostart": [],
+  "timeoutMin": 60
+}

@@ -1,0 +1,6 @@
+Invoice 4471
+Customer: Harbour Print Ltd
+Date: 2026-09-14
+Item: Poster printing, 40 pieces
+Amount due: EUR 1,286.50
+Payment terms: 30 days

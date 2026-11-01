@@ -1,0 +1,16 @@
+{
+  "drives": [
+    {
+      "name": "C:",
+      "totalGB": 931.5,
+      "freeGB": 214.7,
+      "fileSystem": "NTFS"
+    },
+    {
+      "name": "D:",
+      "totalGB": 3725.3,
+      "freeGB": 1190.2,
+      "fileSystem": "NTFS"
+    }
+  ]
+}

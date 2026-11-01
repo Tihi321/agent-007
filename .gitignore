@@ -1,0 +1,7 @@
+.claude/director/
+node_modules/
+dist/
+.claude/temp/
+*.local.json
+*.sqlite*
+secrets*.json

@@ -1,0 +1,45 @@
+- [ ] item 01: renew car insurance
+- [ ] item 02: buy printer paper
+- [ ] item 03: call the dentist
+- [ ] item 04: water the plants
+- [ ] item 05: back up photos
+- [ ] item 06: update router firmware
+- [ ] item 07: read chapter 3
+- [ ] item 08: book train tickets
+- [ ] item 09: email landlord
+- [ ] item 10: clean the desk
+- [ ] item 11: sort receipts
+- [ ] item 12: plan weekend trip
+- [ ] item 13: fix bike tyre
+- [ ] item 14: order coffee beans
+- [ ] item 15: cancel old subscription
+- [ ] item 16: write thank-you note
+- [ ] item 17: check smoke alarms
+- [ ] item 18: renew passport
+- [ ] item 19: sort the garage
+- [ ] item 20: pay the water bill
+- [ ] item 21: schedule oil change
+- [ ] item 22: return library books
+- [ ] item 23: buy birthday gift
+- [ ] item 24: organise bookshelf
+- [ ] item 25: draft budget for Q4
+- [ ] item 26: test the new backup drive
+- [ ] item 27: clear browser downloads
+- [ ] item 28: repot the fern
+- [ ] item 29: review tax documents
+- [ ] item 30: archive old projects
+- [ ] item 31: charge the e-reader
+- [ ] item 32: clean the keyboard
+- [ ] item 33: donate old clothes
+- [ ] item 34: plan the team lunch
+- [ ] item 35: renew domain name
+- [ ] item 36: check tyre pressure
+- [ ] item 37: wash the car
+- [ ] item 38: update the contact list
+- [ ] item 39: empty the dehumidifier
+- [ ] item 40: label the cables
+- [ ] item 41: finish the photo album
+- [ ] item 42: prepare slides
+- [ ] item 43: check the warranty
+- [ ] item 44: buy light bulbs
+- [ ] item 45: sweep the balcony

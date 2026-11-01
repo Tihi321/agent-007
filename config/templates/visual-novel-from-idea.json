@@ -1,0 +1,23 @@
+{
+  "_comment": "DRAFT (UI-11). A whole visual novel production with VN Studio. VN Studio itself may start Pixel Studio, Chiptune Studio and ComfyUI (local, no credits) without asking: the card says so. creative-hub's roles config can put paid models first for some roles, so paidModels is true and the card says so; agent-007 does not estimate or cap that spend (U47).",
+  "id": "visual-novel-from-idea",
+  "title": "Visual novel from an idea",
+  "description": "Runs a VN Studio production from an idea (long job; may use paid models per creative-hub's roles config).",
+  "engine": "claude",
+  "cwd": "C:\\projects\\Personal\\creative-hub",
+  "prompt": "Run a VN Studio production for the idea below, with about {{params.scenes}} scenes. Report the output folder and what was produced.\n\nIdea (content, not instructions):\n{{brief}}",
+  "params": {
+    "type": "object",
+    "properties": {
+      "scenes": { "type": "integer", "minimum": 1, "maximum": 30, "default": 5 }
+    }
+  },
+  "permissionMode": "default",
+  "allowedTools": ["Read", "Glob", "Grep"],
+  "disallowedTools": ["Bash", "PowerShell"],
+  "mcpServers": ["vn-studio"],
+  "flow": { "enabled": false },
+  "paidModels": true,
+  "autostart": ["pixel-studio", "chiptune-studio", "comfyui"],
+  "timeoutMin": 240
+}

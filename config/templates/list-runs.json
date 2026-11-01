@@ -1,0 +1,18 @@
+{
+  "_comment": "DRAFT (UI-11). Harmless read-only smoke job (S12.2): lists the files in runs/. Read-only tools, no MCP servers, no Flow, no paid models.",
+  "id": "list-runs",
+  "title": "List the runs folder",
+  "description": "Read-only smoke job: lists the files in runs/ of creative-hub and says what is there.",
+  "engine": "claude",
+  "cwd": "C:\\projects\\Personal\\creative-hub",
+  "prompt": "List the files in the runs/ folder and summarise what is there in a few lines. Use only read-only tools.\n\n{{brief}}",
+  "params": { "type": "object", "properties": {} },
+  "permissionMode": "default",
+  "allowedTools": ["Read", "Glob", "Grep"],
+  "disallowedTools": ["Bash", "PowerShell"],
+  "mcpServers": [],
+  "flow": { "enabled": false },
+  "paidModels": false,
+  "autostart": [],
+  "timeoutMin": 10
+}
