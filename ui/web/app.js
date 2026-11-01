@@ -76,7 +76,7 @@ export function start(env) {
     }
     // The claim form exists only while no owner exists; otherwise go to the app (signed in) or the sign-in page.
     if (path === "/claim") {
-      if (!state.user && !state.claimed) return ctx.mount(renderClaim(ctx));
+      if (!state.user && (!state.claimed || state.resetPending)) return ctx.mount(renderClaim(ctx));
       return location.replace(state.user ? "/#/" : "/#/signin");
     }
     if (path === "/invite" && !state.user) return ctx.mount(renderInvite(ctx, /code=([\w-]+)/.exec(hash + (location.search || ""))?.[1] || ""));
@@ -103,6 +103,7 @@ export function start(env) {
     if (s) {
       state.claimed = s.claimed;
       state.local = s.local;
+      state.resetPending = s.resetPending === true;
       ctx.passkeys = s.passkeys;
     }
     env.onHashChange?.(route);

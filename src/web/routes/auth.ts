@@ -40,7 +40,7 @@ export function authRoutes(stack: WebStack, hooks: { onLockdown?: () => void } =
     // What the sign-in page needs to know. Nothing about any user.
     "GET /api/state": {
       auth: "public",
-      handler: async (c) => ({ status: 200, body: { claimed: auth.ownerExists(), local: c.identity.kind === "local", passkeys: auth.ceremonyFor(one(c.req.headers["host"]) ?? "") !== undefined } }),
+      handler: async (c) => ({ status: 200, body: { claimed: auth.ownerExists(), local: c.identity.kind === "local", ...(c.identity.kind === "local" ? { resetPending: auth.resetPending() } : {}), passkeys: auth.ceremonyFor(one(c.req.headers["host"]) ?? "") !== undefined } }),
     },
     "POST /api/claim/begin": { auth: "public", handler: (c) => guarded(() => ({ status: 200, body: auth.claimBegin(obj(c.body)["code"], authContext(c)) })) },
     "POST /api/claim/finish": {
