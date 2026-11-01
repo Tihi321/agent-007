@@ -291,3 +291,20 @@ test("HTTP: admin routes need an admin session; sensitive ones need a fresh step
     await gw.close();
   }
 });
+
+test("L1: a target id of __proto__, constructor or toString is 'no such user' on every admin action and never touches Object.prototype", async () => {
+  const w = await world();
+  for (const bad of ["__proto__", "constructor", "toString", "hasOwnProperty", "", 7, null]) {
+    w.clock.t += 1;
+    assert.throws(() => w.admin.setCaps(w.owner.userId, bad, defaultCaps()), (e: AdminError) => e.status === 404, `setCaps ${String(bad)}`);
+    assert.throws(() => w.admin.setRole(w.owner.userId, bad, "admin"), (e: AdminError) => e.status === 404, `setRole ${String(bad)}`);
+    assert.throws(() => w.admin.disableUser(w.owner.userId, bad), (e: AdminError) => e.status === 404, `disable ${String(bad)}`);
+    assert.throws(() => w.admin.enableUser(w.owner.userId, bad), (e: AdminError) => e.status === 404, `enable ${String(bad)}`);
+    assert.throws(() => w.admin.deleteUser(w.owner.userId, bad, "x"), (e: AdminError) => e.status === 404, `delete ${String(bad)}`);
+    assert.throws(() => w.admin.listUsers(bad as string), (e: AdminError) => e.status === 403, `actor ${String(bad)}`);
+  }
+  assert.equal(({} as Record<string, unknown>)["caps"], undefined, "Object.prototype was not polluted");
+  assert.equal(({} as Record<string, unknown>)["status"], undefined);
+  const file = JSON.parse(readFileSync(w.stack.paths.usersFile, "utf8")) as { users: Record<string, unknown> };
+  assert.deepEqual(Object.keys(file.users).length, 1, "only the owner is stored");
+});

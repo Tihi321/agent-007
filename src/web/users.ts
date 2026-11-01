@@ -11,9 +11,9 @@ import { AuthError, newRecoveryCodes } from "./auth.js";
 import type { AuthContext, LoggedIn } from "./auth.js";
 import { MIN_PASSWORD_LENGTH, hashPassword, hashSecret, randomToken, safeEqual } from "./crypto.js";
 import { USER_TOOL_UNIVERSE } from "./capabilities.js";
-import { newInviteId, newUserId } from "./ids.js";
+import { isUserId, newInviteId, newUserId } from "./ids.js";
 import { userPaths } from "./paths.js";
-import { LOGIN_PATTERN, defaultCaps, parseCaps } from "./schemas.js";
+import { LOGIN_PATTERN, defaultCaps, parseCaps, recordFor } from "./schemas.js";
 import type { Caps, Invite, Role, WebUser } from "./schemas.js";
 import type { Identity } from "./server.js";
 import type { WebStack } from "./stack.js";
@@ -73,7 +73,7 @@ export class UserAdmin {
   }
 
   #actor(userId: string): Actor {
-    const user = this.#s.users.read().users[userId];
+    const user = recordFor(this.#s.users.read().users, userId);
     if (!user || user.status !== "active" || (user.role !== "owner" && user.role !== "admin")) throw new AdminError(403, "Not allowed.");
     return { id: userId, user };
   }
@@ -92,6 +92,12 @@ export class UserAdmin {
     const badPreset = known ? c.presets.find((p) => !known.includes(p)) : undefined;
     if (badPreset) throw new AdminError(400, `caps.presets: "${badPreset.slice(0, 40)}" is not a configured preset`);
     return c;
+  }
+
+  /** A target id from the client: only a real user id passes; "__proto__", "constructor" and the like are "no such user" (L1). */
+  #targetId(targetId: unknown): string {
+    if (!isUserId(targetId)) throw new AdminError(404, "No such user.");
+    return targetId;
   }
 
   /** May `actor` act on `target`? Owner: anyone but the owner record itself for destructive actions (checked by the caller). Admin: ordinary users only. */
@@ -279,11 +285,11 @@ export class UserAdmin {
   setCaps(actorId: string, targetId: unknown, capsIn: unknown): void {
     const actor = this.#actor(actorId);
     const caps = this.#checkCaps(capsIn);
-    const id = String(targetId);
-    this.#authority(actor, id, this.#s.users.read().users[id]);
+    const id = this.#targetId(targetId);
+    this.#authority(actor, id, recordFor(this.#s.users.read().users, id));
     if (actor.user.role === "admin" && !capsWithin(caps, actor.user.caps)) throw new AdminError(403, "You cannot give more than you have.");
     this.#s.users.update((d) => {
-      const t = d.users[id];
+      const t = recordFor(d.users, id);
       if (!t) throw new AdminError(404, "No such user.");
       t.caps = caps;
     });
@@ -295,12 +301,14 @@ export class UserAdmin {
     const actor = this.#actor(actorId);
     if (actor.user.role !== "owner") throw new AdminError(403, "Only the owner can change roles.");
     if (role !== "admin" && role !== "user") throw new AdminError(400, "The role must be admin or user.");
-    const id = String(targetId);
-    const t = this.#s.users.read().users[id];
+    const id = this.#targetId(targetId);
+    const t = recordFor(this.#s.users.read().users, id);
     if (!t) throw new AdminError(404, "No such user.");
     if (t.role === "owner") throw new AdminError(403, "The owner role cannot be changed.");
     this.#s.users.update((d) => {
-      (d.users[id] as WebUser).role = role;
+      const u = recordFor(d.users, id);
+      if (!u) throw new AdminError(404, "No such user.");
+      u.role = role;
     });
     this.#s.sessions.revokeUser(id);
     this.#s.audit.write({ kind: "user_change", user: actorId, detail: { target: id, change: "role", role } });
@@ -309,11 +317,12 @@ export class UserAdmin {
   /** Disables the account and ends its sessions in the same call; the data stays (archive) until the retention sweep. */
   disableUser(actorId: string, targetId: unknown): void {
     const actor = this.#actor(actorId);
-    const id = String(targetId);
-    const t = this.#authority(actor, id, this.#s.users.read().users[id]);
+    const id = this.#targetId(targetId);
+    const t = this.#authority(actor, id, recordFor(this.#s.users.read().users, id));
     if (t.role === "owner") throw new AdminError(403, "The owner cannot be disabled.");
     this.#s.users.update((d) => {
-      const u = d.users[id] as WebUser;
+      const u = recordFor(d.users, id);
+      if (!u) throw new AdminError(404, "No such user.");
       u.status = "disabled";
       u.disabledAt = this.#now();
     });
@@ -323,10 +332,11 @@ export class UserAdmin {
 
   enableUser(actorId: string, targetId: unknown): void {
     const actor = this.#actor(actorId);
-    const id = String(targetId);
-    this.#authority(actor, id, this.#s.users.read().users[id]);
+    const id = this.#targetId(targetId);
+    this.#authority(actor, id, recordFor(this.#s.users.read().users, id));
     this.#s.users.update((d) => {
-      const u = d.users[id] as WebUser;
+      const u = recordFor(d.users, id);
+      if (!u) throw new AdminError(404, "No such user.");
       u.status = "active";
       delete u.disabledAt;
     });
@@ -337,8 +347,8 @@ export class UserAdmin {
   deleteUser(actorId: string, targetId: unknown, confirmLogin: unknown): void {
     const actor = this.#actor(actorId);
     if (actor.user.role !== "owner") throw new AdminError(403, "Only the owner can delete a user.");
-    const id = String(targetId);
-    const t = this.#s.users.read().users[id];
+    const id = this.#targetId(targetId);
+    const t = recordFor(this.#s.users.read().users, id);
     if (!t) throw new AdminError(404, "No such user.");
     if (t.role === "owner") throw new AdminError(403, "The owner cannot be deleted.");
     if (typeof confirmLogin !== "string" || confirmLogin.trim().toLowerCase() !== t.login.toLowerCase()) throw new AdminError(400, "Type the user's login to confirm.");

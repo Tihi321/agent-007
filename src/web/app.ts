@@ -18,6 +18,7 @@ import { privacyRoutes } from "./routes/privacy.js";
 import { TurnScheduler } from "./runtime/scheduler.js";
 import { GatewayStartError, checkStartup, startGateway } from "./server.js";
 import type { GatewayOptions, RunningGateway } from "./server.js";
+import { recordFor } from "./schemas.js";
 import { createWebStack } from "./stack.js";
 import type { WebStack } from "./stack.js";
 import { makeIdentityVerifier } from "./tailscale.js";
@@ -98,7 +99,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
   const identify = o.identify ?? makeIdentityVerifier({ port: o.port, publicHosts: o.mode === "tailnet" ? o.publicHosts : [], whois: o.whois ?? (async () => undefined) });
   const assets = o.assetsDir ? loadWebAssets(o.assetsDir) : undefined;
   const userCaps = (userId: string) => {
-    const u = stack.users.read().users[userId];
+    const u = recordFor(stack.users.read().users, userId);
     return u && u.status === "active" ? { caps: u.caps } : undefined;
   };
   const watch = o.controlDir ? watchKillSwitch({ controlDir: o.controlDir, sessions: stack.sessions, audit: stack.audit }) : undefined;

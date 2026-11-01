@@ -288,3 +288,11 @@ export function parseSessionsFile(v: unknown): SessionsFile {
   });
   return { schemaVersion: 1, sessions };
 }
+
+/**
+ * Looks up a record by user id in a store map. Only a real user id (32 hex) that is an OWN key matches, so "__proto__", "constructor"
+ * or "toString" from a client can never reach `Object.prototype` (L1).
+ */
+export function recordFor<T>(map: Record<string, T>, id: unknown): T | undefined {
+  return isUserId(id) && Object.hasOwn(map, id) ? map[id] : undefined;
+}
