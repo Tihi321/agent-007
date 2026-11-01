@@ -72,8 +72,13 @@ export interface GatewayOptions {
   sessions: SessionResolver;
   /** I49: turns a request into an identity, or refuses it. */
   identify(req: IncomingMessage, ctx: { port: number }): Promise<IdentityResult>;
-  /** Does a verified Tailscale login map to a user or a pending invite? false = generic 403. Not called for local identities. */
+  /** Does a verified Tailscale login map to a user or a pending invite PINNED to it? false = generic 403. Not called for local identities. */
   admit?(identity: Identity): boolean;
+  /**
+   * L6: a login that `admit` refuses may present an invite code once, as `GET /invite?code=...`. True = the code is valid for this
+   * login (an open invite is now pinned to it) and the browser is sent on to the invite page; false = the same generic 403 as anyone else.
+   */
+  presentInvite?(identity: Identity, code: string): boolean;
   assets?: Map<string, { body: string | Buffer; type: string }>;
   now?: () => number;
   maxStreamsPerUser?: number;
@@ -214,6 +219,10 @@ export async function startGateway(o: GatewayOptions): Promise<RunningGateway> {
     }
     const identity = idr.identity;
     if (identity.kind === "tailscale" && o.admit && !o.admit(identity)) {
+      const code = method === "GET" && url.pathname === "/invite" ? url.searchParams.get("code") : null;
+      if (code && code.length <= 100 && /^[A-Za-z0-9_-]+$/.test(code) && o.presentInvite?.(identity, code) === true) {
+        return send(res, 303, undefined, undefined, { Location: `/invite#code=${code}`, "Cache-Control": "no-store" });
+      }
       o.audit.write({ kind: "identity_rejected", detail: { reason: "unknown login" } });
       if (method === "POST") req.resume();
       return send(res, 403, GENERIC_403, "text/html; charset=utf-8");

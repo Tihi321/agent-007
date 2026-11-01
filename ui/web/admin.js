@@ -63,7 +63,7 @@ export async function renderAdmin(ctx) {
         ev.preventDefault();
         const r = await withStepUp(ctx, () => ctx.api.call("/api/admin/invites/create", { role: role.value, ...(pin.value.trim() ? { tailscaleLoginPin: pin.value.trim() } : {}) }), out);
         if (!r.ok) return note(false, r.data.message || "Could not create the invitation.");
-        clear(out, h("div", { class: "banner banner-ok" }, h("p", {}, "Send this code to the person yourself. It is shown only now and works once, for 24 hours:"), h("pre", { class: "codes" }, r.data.code)));
+        clear(out, h("div", { class: "banner banner-ok" }, h("p", {}, "Send this link to the person yourself. It is shown only now and works once, for 24 hours. Without a pinned login, the first tailnet login that opens it becomes the only one that can use it:"), h("pre", { class: "codes" }, `${globalThis.location?.origin ?? ""}/invite?code=${r.data.code}`)));
         load();
       },
     },

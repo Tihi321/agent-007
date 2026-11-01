@@ -112,6 +112,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     sessions: stack.sessions,
     identify,
     admit: admin.admit,
+    presentInvite: admin.presentInvite,
     routes: { ...authRoutes(stack, { onLockdown: () => void chat.stopAll() }), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin) },
     ...(assets ? { assets } : {}),
     now,

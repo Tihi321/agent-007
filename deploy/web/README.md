@@ -31,7 +31,7 @@ Passkeys: they work at `http://localhost:47009` (not at `127.0.0.1`, an IP addre
 3. [GO] Start the gateway in tailnet mode: `npm run web -- --mode tailnet --public-host <name>.<tailnet>.ts.net`. It refuses to start if the serve status shows a Funnel entry or a target other than 47009, if the Tailscale CLI is missing or too old, or if the clock is off.
 4. [GO] `powershell deploy\web\tailscale-serve.ps1 -Apply` publishes the gateway. `... -Remove -Apply` takes it down. Check with `tailscale serve status`: it must list only port 47009 and no Funnel.
 5. Sign in at `https://<name>.<tailnet>.ts.net` from your phone (add a passkey in Account if you like).
-6. Invite someone: Admin, "Invite someone", enter their Tailscale login. Send the one-time code yourself (it is shown once, works once, 24 hours). They open the address from their own tailnet device, enter it, and set up a password + authenticator or a passkey.
+6. Invite someone: Admin, "Invite someone", enter their Tailscale login (recommended). Send the one-time link yourself (it is shown once, works once, 24 hours). They open it from their own tailnet device and set up a password + authenticator or a passkey. An invite without a pinned login admits nobody until the link (with its code) is opened; the first tailnet login that opens it becomes the only one that can use it, and everyone else keeps getting the generic 403.
 7. Revoke: Admin, "Disable" ends their sessions at once and keeps their data for 30 days, then deletes it. "Delete" (typed confirmation) removes it now.
 
 ## What a user can and cannot do

@@ -65,7 +65,7 @@ export function start(env) {
     const path = location.pathname;
     const parts = hash.replace(/^#\/?/, "").split("/");
     if (path === "/claim" && !state.user) return ctx.mount(renderClaim(ctx));
-    if (path === "/invite" && !state.user) return ctx.mount(renderInvite(ctx, /code=([\w-]+)/.exec(hash)?.[1] || ""));
+    if (path === "/invite" && !state.user) return ctx.mount(renderInvite(ctx, /code=([\w-]+)/.exec(hash + (location.search || ""))?.[1] || ""));
     if (!state.user) {
       const me = await api.get("/api/me", { quiet: true });
       if (me.ok) {

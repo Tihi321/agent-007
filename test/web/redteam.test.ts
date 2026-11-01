@@ -207,8 +207,27 @@ test("T2 a tailnet member who was never invited gets the generic 403, byte for b
     // a pending invite for someone else is no reason to admit this person
     n.app.admin.createInvite(n.app.stack.users.read().users ? Object.keys(n.app.stack.users.read().users)[0]! : "", { tailscaleLoginPin: "carol@example.com" });
     assert.equal(ok(await n.via(STRANGER, "GET", "/")).status, 403);
+    // L6: an OPEN invite (no pin) is no reason to admit anybody either: the stranger still gets the generic 403, byte for byte
+    const ownerId = Object.keys(n.app.stack.users.read().users)[0]!;
+    const open = n.app.admin.createInvite(ownerId, {});
+    for (const path of ["/", "/api/state", "/invite", "/invite?code=wrong-code"]) {
+      const r = ok(await n.via(STRANGER, "GET", path));
+      assert.equal(r.status, 403, path);
+      assert.equal(r.text, forged.text, path);
+    }
+    assert.equal(ok(await n.via(STRANGER, "POST", "/api/invite/begin", { body: { code: open.code } })).status, 403, "the invite API is not reachable before the code is presented");
+    // presenting the right code pins the open invite to that login and sends the browser on; then (and only then) the page loads
+    const presented = ok(await n.via(STRANGER, "GET", `/invite?code=${open.code}`));
+    assert.equal(presented.status, 303);
+    assert.equal(presented.headers["location"], `/invite#code=${open.code}`);
+    assert.equal(n.app.stack.invites.read().invites.find((i) => i.tailscaleLoginPin === STRANGER.login)?.tailscaleLoginPin, STRANGER.login);
+    assert.equal(ok(await n.via(STRANGER, "GET", "/api/state")).status, 200);
+    // the same code from another login: generic 403 (the invite is now pinned to the first presenter)
+    const bobTry = ok(await n.via(BOB, "GET", `/invite?code=${open.code}`));
+    assert.equal(bobTry.status, 403);
+    assert.equal(bobTry.text, forged.text);
     // a member who IS invited sees the page
-    n.app.admin.createInvite(Object.keys(n.app.stack.users.read().users)[0]!, { tailscaleLoginPin: ALICE.login });
+    n.app.admin.createInvite(ownerId, { tailscaleLoginPin: ALICE.login });
     assert.equal(ok(await n.via(ALICE, "GET", "/")).status, 404, "admitted (no assets in this rig, so 404 for the page itself)");
     assert.equal(ok(await n.via(ALICE, "GET", "/api/state")).status, 200);
   } finally {

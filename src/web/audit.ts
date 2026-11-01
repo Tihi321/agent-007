@@ -19,6 +19,7 @@ export const AUDIT_KINDS = [
   "invite_create",
   "invite_use",
   "invite_revoke",
+  "invite_bound",
   "user_change",
   "user_delete",
   "bot_create",
@@ -33,6 +34,10 @@ export const AUDIT_KINDS = [
   "step_up",
   "export",
   "chat_turn",
+  "paid_grant",
+  "paid_usage",
+  "paid_cap_hit",
+  "route_changed",
 ] as const;
 export type AuditKind = (typeof AUDIT_KINDS)[number];
 

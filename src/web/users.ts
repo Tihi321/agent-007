@@ -168,16 +168,51 @@ export class UserAdmin {
     this.#s.audit.write({ kind: "invite_revoke", user: actorId, detail: { invite: String(inviteId).slice(0, 20) } });
   }
 
-  /** Does a verified Tailscale login map to an active user or a usable invite? (the gateway's `admit`, generic 403 otherwise) */
+  /**
+   * Does a verified Tailscale login map to an active user or a usable invite PINNED to that login? (the gateway's `admit`, generic 403
+   * otherwise). An open invite (no pin) admits nobody by itself: the invitee first presents the code (`presentInvite`), which pins it (L6).
+   */
   admit = (identity: Identity): boolean => {
     if (identity.kind !== "tailscale") return true;
     const l = identity.login.toLowerCase();
     try {
       if (Object.values(this.#s.users.read().users).some((u) => u.status === "active" && u.login.toLowerCase() === l)) return true;
       const now = this.#now();
-      return this.#s.invites.read().invites.some((i) => !i.usedBy && !i.revoked && i.expiresAt > now && (i.tailscaleLoginPin === undefined || i.tailscaleLoginPin.toLowerCase() === l));
+      return this.#s.invites.read().invites.some((i) => !i.usedBy && !i.revoked && i.expiresAt > now && i.tailscaleLoginPin !== undefined && i.tailscaleLoginPin.toLowerCase() === l);
     } catch {
       return false; // a corrupt store admits nobody (I55)
+    }
+  };
+
+  /**
+   * L6: a tailnet login that is not admitted presents an invite code (`GET /invite?code=`). A valid code of an open invite pins the invite
+   * to this login (first presentation wins, plan section 6) so `admit` lets the invitee in; a code pinned to this login is fine too.
+   * Anything else is a failure counted against the login, and the caller answers with the generic 403.
+   */
+  presentInvite = (identity: Identity, code: string): boolean => {
+    if (identity.kind !== "tailscale") return false;
+    const l = identity.login.toLowerCase();
+    const key = `invite:ts:${l}`;
+    try {
+      if (this.#s.lockout.lockedFor(key) > 0) return false;
+      const inv = this.#findInvite(code);
+      const taken = Object.values(this.#s.users.read().users).some((u) => u.login.toLowerCase() === l);
+      if (!inv || taken || (inv.tailscaleLoginPin !== undefined && inv.tailscaleLoginPin.toLowerCase() !== l) || !LOGIN_PATTERN.test(identity.login)) {
+        this.#s.lockout.fail(key);
+        this.#s.audit.write({ kind: "login_fail", detail: { step: "invite_present" } });
+        return false;
+      }
+      if (inv.tailscaleLoginPin === undefined) {
+        this.#s.invites.update((d) => {
+          const i = d.invites.find((x) => x.id === inv.id);
+          if (!i || i.tailscaleLoginPin !== undefined) throw new AdminError(409, "taken");
+          i.tailscaleLoginPin = identity.login;
+        });
+        this.#s.audit.write({ kind: "invite_bound", detail: { invite: inv.id } });
+      }
+      return true;
+    } catch {
+      return false; // a corrupt store or a lost race: nobody is admitted (I55)
     }
   };
 
