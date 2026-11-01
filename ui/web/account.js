@@ -1,15 +1,35 @@
 // Account: devices and sessions, passkeys, recovery codes, export and delete my data (S35). Sensitive steps ask for a fresh authenticator
 // code or passkey first (step-up), as the server requires.
 import { clear, field, h, when } from "./dom.js";
-import { createPasskey, passkeysAvailable } from "./passkey.js";
+import { createPasskey, getPasskey, passkeysAvailable } from "./passkey.js";
 
-/** Runs `fn` (an API call); if the server wants a fresh confirmation, asks for a code, confirms, and retries once. */
+/**
+ * Runs `fn` (an API call); if the server wants a fresh confirmation, confirms and retries once. A passkey is offered first when this
+ * address supports one and the account has one (an account with passkeys only has no authenticator code); the 6-digit code is the
+ * fallback when there is no passkey or the passkey prompt is cancelled or fails.
+ */
 export async function withStepUp(ctx, fn, host) {
   let r = await fn();
   if (r.status !== 401 || r.data.error !== "step_up_required") return r;
-  const code = ctx.prompt("Confirm it is you: enter your 6-digit authenticator code", "");
-  if (!code) return r;
-  const s = await ctx.api.call("/api/stepup", { totpCode: code });
+  const pk = ctx.passkeys || { available: passkeysAvailable, get: getPasskey };
+  let s;
+  if (pk.available()) {
+    const o = await ctx.api.call("/api/stepup/options", {});
+    if (o.ok && o.data.passkey && (o.data.passkey.allowCredentials || []).length > 0) {
+      try {
+        s = await ctx.api.call("/api/stepup", await pk.get(o.data.passkey));
+      } catch {
+        s = undefined; // cancelled or not available on this device: fall back to the code
+      }
+      if (s && s.ok) return fn();
+    }
+  }
+  const code = ctx.prompt(s ? "The passkey did not work. Enter your 6-digit authenticator code instead" : "Confirm it is you: enter your 6-digit authenticator code", "");
+  if (!code) {
+    if (s && !s.ok && host) clear(host, h("p", { class: "banner banner-error", role: "alert" }, s.data.message || "That confirmation did not work."));
+    return s && !s.ok ? s : r;
+  }
+  s = await ctx.api.call("/api/stepup", { totpCode: code });
   if (!s.ok) {
     if (host) clear(host, h("p", { class: "banner banner-error", role: "alert" }, s.data.message || "That confirmation did not work."));
     return s;

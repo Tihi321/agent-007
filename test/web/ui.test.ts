@@ -266,3 +266,43 @@ async function makeAppWithAssets() {
   const app = await startWebApp({ dataDir: tempDir("a7-assets-"), port, mode: "local", publicHosts: [], presets: () => PRESETS, terms: () => ({ claude: true, antigravity: false }), engine: new ScriptedEngine(), assetsDir: DIST });
   return { port, close: () => app.close() };
 }
+
+test("L4: the UI step-up offers a passkey first (no code prompt when it works) and falls back to the authenticator code", async () => {
+  const { SoftAuthenticator } = await import("./softAuthenticator.js");
+  const { withStepUp } = await load("account.js");
+  const t = await makeApp({ mode: "local" });
+  try {
+    const host = `localhost:${t.port}`;
+    const origin = `http://${host}`;
+    const ctxAuth = { identity: { kind: "local" as const }, host, ip: "local", ua: "t" };
+    const session = () => t.app.stack.sessions.resolve(t.owner.cookie.split("=")[1] as string, { ip: "local", ua: "t" })!;
+    // the owner adds a passkey (soft authenticator)
+    const dev = new SoftAuthenticator();
+    const reg = t.app.stack.auth.passkeyRegisterBegin(session(), ctxAuth);
+    t.app.stack.auth.passkeyRegisterFinish(session(), { ...dev.create({ challenge: reg.challenge, rpId: "localhost", origin }), label: "soft" });
+    t.clock.t += 6 * 60_000; // the step-up is stale now
+    const call = async (path: string, body: unknown) => {
+      const r = await t.post(t.owner, path, body);
+      let data: any = {};
+      try {
+        data = r.json();
+      } catch {
+        /* empty */
+      }
+      return { ok: r.status >= 200 && r.status < 300, status: r.status, data };
+    };
+    let prompts = 0;
+    const ctx = { api: { call }, prompt: () => (prompts++, ""), passkeys: { available: () => true, get: async (o: { challenge: string; rpId: string }) => dev.get({ challenge: o.challenge, rpId: o.rpId, origin }) } };
+    const r = await withStepUp(ctx, () => call("/api/account/recovery/regenerate", {}));
+    assert.equal(r.status, 200, JSON.stringify(r.data));
+    assert.equal(prompts, 0, "no code was asked for: the passkey confirmed it");
+    // the passkey prompt is cancelled: the code is asked for instead
+    t.clock.t += 6 * 60_000;
+    const cancelled = { ...ctx, passkeys: { available: () => true, get: async () => Promise.reject(new Error("NotAllowedError")) } };
+    const r2 = await withStepUp(cancelled, () => call("/api/account/recovery/regenerate", {}));
+    assert.equal(r2.status, 401);
+    assert.equal(prompts, 1, "fell back to the authenticator code prompt");
+  } finally {
+    await t.close();
+  }
+});
