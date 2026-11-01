@@ -180,7 +180,7 @@ test("S7.5/S7.6 register-task and deploy-app carry the settings of the plan", ()
     assert.ok(cm.includes(needle), `common.ps1 task builder has ${needle}`);
   }
   const da = stripComments(readScript("deploy-app.ps1"));
-  assert.match(da, /'ci', '--omit=dev', '--ignore-scripts'/);
+  assert.match(da, /'workspaces', 'focus', '--production'/);
   assert.match(da, /Set-ProgramFilesAcl/);
   assert.match(da, /Test-Path -LiteralPath \$configFile -PathType Leaf/);
 });

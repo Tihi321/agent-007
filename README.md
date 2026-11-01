@@ -23,6 +23,19 @@ yarn test               # node --test over dist/test (one test is skipped withou
 yarn check:adapter   # only src/pi/adapter.ts may import the Pi packages
 ```
 
+## Run locally without deploying
+
+```powershell
+yarn build
+yarn setup:local    # creates .local/ (git-ignored): config, settings/security.json, secrets skeleton; never overwrites
+yarn web:local      # web gateway on http://localhost:47009 against .local/ (ACL checks off)
+yarn web-owner-code --data-dir .local\data    # one-time owner claim code, then open /claim
+```
+
+Fill the `CHANGE-ME` values in `.local/secrets/secrets.json` (the ACP proxy key for the Claude presets; the Strata key if it
+asks for one). The Claude presets stay refused until you set `termsAccepted.claude` to `true` in `.local/settings/security.json`.
+`yarn start:local` runs the Telegram agent the same way (needs a real bot token and your Telegram id).
+
 ## Install
 
 The install is a set of elevated PowerShell scripts that create a low-privilege `agent007` user, lock down folders and
@@ -48,6 +61,7 @@ The settings web UI is served by the job runner on loopback port 47008 (the job 
 
 | Script | What it does |
 |---|---|
+| `setup:local`, `web:local`, `start:local` | dev setup in `.local/`, and the web gateway / agent against it |
 | `start` | the agent (`dist/src/main.js`); normally started by the scheduled task |
 | `jobrunner` | the job runner (`dist/src/jobrunner/main.js`) |
 | `smoke:*`, `smoke:all` | Pi Durable smoke checks (they use a local model or stubs; read the script first) |
