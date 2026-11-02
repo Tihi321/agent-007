@@ -53,6 +53,7 @@ test("classify: source decides, payload cannot", () => {
   assert.equal(classify(custom("http://127.0.0.1:9000/v1"), "m").privacy, "local");
   assert.equal(classify(custom("http://localhost:9000/v1"), "m").privacy, "local");
   assert.equal(classify(custom("http://127.0.0.1:9000/v1", { treatAsCloud: true }), "m").privacy, "cloud");
+  assert.equal(classify(custom("http://127.0.0.1:8787/v1"), "m").privacy, "cloud"); // the ACP proxy port is always cloud
   assert.equal(classify(custom("https://openrouter.ai/api/v1", { privacy: "local" }), "m").privacy, "cloud");
   assert.equal(classify(custom("http://127.0.0.1.evil.com/v1"), "m").privacy, "cloud");
   assert.equal(classify(custom("http://192.168.1.5:1234/v1"), "m").privacy, "cloud");

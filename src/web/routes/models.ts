@@ -10,7 +10,7 @@
 import { lookup } from "node:dns/promises";
 import { isPaidPreset } from "../../bots/schema.js";
 import type { PresetConfig } from "../../bots/schema.js";
-import { MODEL_ID_PATTERN, RESERVED_SOURCE_IDS, SOURCE_ID_PATTERN, classify, derivePrivacy, findExistingPreset, groupOf, isLiteralLoopbackUrl, isSetUp, presetIdFor } from "../../models/sources.js";
+import { MODEL_ID_PATTERN, RESERVED_SOURCE_IDS, SOURCE_ID_PATTERN, classify, derivePrivacy, findExistingPreset, groupOf, isLiteralLoopbackUrl, isProxyPortUrl, isSetUp, presetIdFor } from "../../models/sources.js";
 import type { ExistingPreset, FetchedRow, ModelSource } from "../../models/sources.js";
 import type { AuthMethod } from "../../proxy/health.js";
 import type { WebAudit } from "../audit.js";
@@ -429,7 +429,7 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
           const label = text(b["label"], "The name", 1, MAX_SOURCE_LABEL);
           const { baseUrl, loopback } = await validateUrl(b["baseUrl"]);
           if (b["treatAsCloud"] !== undefined && typeof b["treatAsCloud"] !== "boolean") throw bad("Treat as cloud must be true or false.");
-          const treatAsCloud = loopback && b["treatAsCloud"] === true;
+          const treatAsCloud = loopback && (b["treatAsCloud"] === true || isProxyPortUrl(baseUrl));
           const cloud = !loopback || treatAsCloud;
           let billing: "subscription" | "paid" | undefined;
           if (cloud) {
