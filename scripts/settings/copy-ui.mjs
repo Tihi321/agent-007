@@ -36,3 +36,18 @@ process.stdout.write(`copied ${n} settings UI files to dist/ui/settings\n`);
   process.stdout.write(`copied ${m} web UI files to dist/ui/web
 `);
 }
+
+// Desktop launcher page: ui/common/tokens.css + ui/desktop/* copied FLAT into dist/ui/desktop (a file: page next to the tokens).
+{
+  const out = join(root, "dist", "ui", "desktop");
+  rmSync(out, { recursive: true, force: true });
+  mkdirSync(out, { recursive: true });
+  copyFileSync(join(root, "ui", "common", "tokens.css"), join(out, "tokens.css"));
+  let k = 1;
+  for (const f of readdirSync(join(root, "ui", "desktop"), { withFileTypes: true })) {
+    if (!f.isFile()) continue;
+    copyFileSync(join(root, "ui", "desktop", f.name), join(out, f.name));
+    k++;
+  }
+  process.stdout.write(`copied ${k} desktop UI files to dist/ui/desktop\n`);
+}

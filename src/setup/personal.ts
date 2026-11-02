@@ -252,6 +252,25 @@ export function hasTelegramPlaceholders(root: string): boolean {
   }
 }
 
+/** What the launcher page may show about the stored answers: booleans only, never a value. Read only. */
+export function personalStatus(root: string): { hasProxyKey: boolean; claudeTermsAccepted: boolean } {
+  const p = personalPaths(root);
+  const read = (file: string): Obj => {
+    try {
+      const v = JSON.parse(readFileSync(file, "utf8")) as unknown;
+      return typeof v === "object" && v !== null && !Array.isArray(v) ? (v as Obj) : {};
+    } catch {
+      return {};
+    }
+  };
+  const key = read(p.secretsPath)["proxyApiKey"];
+  const terms = read(p.securityPath)["termsAccepted"];
+  return {
+    hasProxyKey: typeof key === "string" && key !== "" && key !== PLACEHOLDER,
+    claudeTermsAccepted: typeof terms === "object" && terms !== null && (terms as Obj)["claude"] === true,
+  };
+}
+
 export interface JobrunnerSetup {
   configPath: string;
   secretsPath: string;

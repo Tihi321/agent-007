@@ -38,7 +38,9 @@
     "web-lockdown": "node dist/src/web/cli.js lockdown",
     "setup:local": "node dist/scripts/setup-local.js",
     "web:local": "node dist/scripts/local-run.js web",
-    "start:local": "node dist/scripts/local-run.js start"
+    "start:local": "node dist/scripts/local-run.js start",
+    "desktop:dev": "yarn build && electron .",
+    "icons": "node scripts/desktop/make-icons.mjs"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "2.0.2",
@@ -52,6 +54,9 @@
   },
   "devDependencies": {
     "@types/node": "24.19.2",
+    "electron": "44.10.1",
+    "electron-builder": "26.18.1",
     "typescript": "7.0.2"
-  }
+  },
+  "main": "dist/src/desktop/main.js"
 }

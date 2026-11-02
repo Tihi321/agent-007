@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'self'; script-src 'self'; img-src 'self'">
+  <meta name="color-scheme" content="light dark">
+  <title>agent-007</title>
+  <link rel="stylesheet" href="tokens.css">
+  <link rel="stylesheet" href="setup.css">
+</head>
+<body>
+  <main class="wrap">
+    <h1>agent-007</h1>
+
+    <!-- First run -->
+    <section id="first-run" hidden>
+      <p class="muted">Welcome. This sets up your personal agent-007 on this PC. Nothing is sent anywhere; the data stays in the folder below.</p>
+
+      <div class="card">
+        <h2>Data folder</h2>
+        <p><code id="folder-path"></code></p>
+        <p class="muted small" id="folder-note"></p>
+        <button id="pick-folder" type="button" class="btn">Use an existing folder...</button>
+      </div>
+
+      <div id="answers">
+        <div class="card">
+          <h2>Model access</h2>
+          <div class="field">
+            <label for="proxy-key">ACP proxy key (optional)</label>
+            <input id="proxy-key" type="password" autocomplete="off" spellcheck="false">
+          </div>
+          <label class="check"><input id="terms" type="checkbox"> <span>I accept the Claude consumer terms (needed for the Claude presets).</span></label>
+          <p class="small"><a href="#" id="terms-link">Read the terms</a></p>
+        </div>
+
+        <details class="card">
+          <summary>Telegram (optional, you can add it later)</summary>
+          <div class="field">
+            <label for="tg-token">Bot token</label>
+            <input id="tg-token" type="password" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="tg-user">Your Telegram user id</label>
+            <input id="tg-user" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+          </div>
+        </details>
+      </div>
+
+      <div class="card notice">
+        <h2>Personal mode</h2>
+        <p class="small">The agent's shell tool runs as you. The only barrier to it changing its own security settings is the path policy, so agent-007 never lists its data folder as a folder the agent may write. For stronger isolation use the hardened install.</p>
+      </div>
+
+      <p id="setup-error" class="banner error" role="alert" hidden></p>
+      <button id="finish" type="button" class="btn primary">Finish</button>
+    </section>
+
+    <!-- After setup -->
+    <section id="dashboard" hidden>
+      <div id="claim" class="card claim" hidden>
+        <h2>Claim agent-007</h2>
+        <p class="small">No owner yet. Open the claim page on this PC and enter this one-time code. It is valid for 10 minutes and is shown only here.</p>
+        <p><code id="claim-code" class="code"></code></p>
+        <div class="row">
+          <button id="copy-claim" type="button" class="btn">Copy</button>
+          <button id="open-claim" type="button" class="btn primary">Open claim page</button>
+        </div>
+        <p id="claim-msg" class="small muted"></p>
+      </div>
+
+      <div class="card">
+        <h2>Services</h2>
+        <ul id="services" class="services"></ul>
+        <div class="row">
+          <button id="open-gateway" type="button" class="btn">Open agent-007</button>
+          <button id="new-claim" type="button" class="btn">Show claim code</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <h2>Switches</h2>
+        <label class="check"><input id="tg-toggle" type="checkbox"> <span>Telegram agent</span></label>
+        <p class="small muted" id="tg-hint"></p>
+        <label class="check"><input id="jr-toggle" type="checkbox"> <span>Job runner (not isolated in personal mode)</span></label>
+        <p class="small muted" id="jr-hint">Off by default. Turning it on shows a warning first.</p>
+        <label class="check"><input id="login-toggle" type="checkbox"> <span>Launch at login</span></label>
+        <p class="small muted" id="login-hint"></p>
+        <p id="toggle-msg" class="small" role="status"></p>
+      </div>
+
+      <div class="card">
+        <h2>Keys and Telegram</h2>
+        <p class="small muted">Values are sent to the launcher and never shown again. Leave a field empty to keep what is stored.</p>
+        <div class="field">
+          <label for="u-proxy-key">ACP proxy key <span id="key-state" class="badge"></span></label>
+          <input id="u-proxy-key" type="password" autocomplete="off" spellcheck="false">
+        </div>
+        <label class="check"><input id="u-terms" type="checkbox"> <span>I accept the Claude consumer terms.</span></label>
+        <div class="field">
+          <label for="u-tg-token">Telegram bot token</label>
+          <input id="u-tg-token" type="password" autocomplete="off" spellcheck="false">
+        </div>
+        <div class="field">
+          <label for="u-tg-user">Telegram user id</label>
+          <input id="u-tg-user" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+        </div>
+        <button id="save-secrets" type="button" class="btn primary">Save</button>
+        <p id="secrets-msg" class="small" role="status"></p>
+        <p class="small muted">Restart the gateway or the Telegram agent from the tray menu for a new key to take effect.</p>
+      </div>
+
+      <div class="card">
+        <h2>Folders</h2>
+        <p class="small">Data folder: <code id="root-path"></code></p>
+        <p class="small muted" id="data-note"></p>
+        <div class="row">
+          <button id="open-logs" type="button" class="btn">Open logs folder</button>
+          <button id="open-data" type="button" class="btn">Open data folder</button>
+        </div>
+      </div>
+    </section>
+  </main>
+  <script src="setup.js"></script>
+</body>
+</html>
