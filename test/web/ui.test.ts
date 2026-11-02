@@ -72,11 +72,12 @@ test("safe Markdown: HTML stays text, javascript: links are not links, images ne
   assert.equal(r[1].rows[0][1][0].t, "strong");
   assert.equal(r[3].items.length, 2, "nested items stay one level");
   assert.deepEqual(parseMarkdown("```inline```").map((x: any) => x.t), ["p"], "a fence line with a backtick later is not a code block");
-  // pathological input is linear, not catastrophic
+  // pathological input is linear: unclosed delimiters never make the parser rescan the rest of the line
   const t0 = Date.now();
   parseMarkdown("*".repeat(20000) + "[".repeat(20000) + "`".repeat(20000));
+  parseMarkdown("*[`".repeat(20000) + "[a](".repeat(20000));
   parseMarkdown("|".repeat(20000) + "\n" + "|-".repeat(10000) + "\n" + "|".repeat(20000));
-  assert.ok(Date.now() - t0 < 2000);
+  assert.ok(Date.now() - t0 < 200, `took ${Date.now() - t0} ms`);
 });
 
 test("shortTime: today, yesterday, the past week, this year, older", async () => {

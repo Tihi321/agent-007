@@ -4,8 +4,34 @@
 
 const LINK_OK = /^(https?:\/\/|mailto:)/i;
 
-/** Inline spans: `code`, **bold**, *italic*, [text](url). */
+/** For each position, the index of the next character passing `test` at or after it (src.length when there is none); one backward pass. */
+function nextOf(src, test) {
+  const next = new Int32Array(src.length + 2).fill(src.length);
+  for (let k = src.length - 1; k >= 0; k--) next[k] = test(src[k]) ? k : next[k + 1];
+  return next;
+}
+const WS = /\s/;
+
+/**
+ * Inline spans: `code`, **bold**, *italic*, [text](url). Linear time: every closing delimiter is found with a precomputed next-index table, never
+ * by rescanning the rest of the line, so pathological input such as `*[` repeated 20,000 times stays fast. The output is the same as the
+ * anchored-regex version it replaced: code, bold, italic content is one or more characters other than its delimiter and a newline; a link is
+ * [label](url) with no newline or "]" in the label and no ")" or whitespace in the url.
+ */
 export function parseInline(src) {
+  const n = src.length;
+  const nl = nextOf(src, (c) => c === "\n");
+  const tick = nextOf(src, (c) => c === "`");
+  const star = nextOf(src, (c) => c === "*");
+  const under = nextOf(src, (c) => c === "_");
+  const close = nextOf(src, (c) => c === "]");
+  const paren = nextOf(src, (c) => c === ")");
+  const ws = nextOf(src, (c) => WS.test(c));
+  // The end of a run of at least one character that is not `delim` or a newline, closed by `delim`; -1 when there is none.
+  const closer = (from, table) => {
+    const j = table[from];
+    return j > from && j < n && j < nl[from] ? j : -1;
+  };
   const out = [];
   let i = 0;
   let text = "";
@@ -13,32 +39,46 @@ export function parseInline(src) {
     if (text) out.push({ t: "text", v: text });
     text = "";
   };
-  while (i < src.length) {
-    const rest = src.slice(i);
-    let m;
-    if ((m = /^`([^`\n]+)`/.exec(rest))) {
+  while (i < n) {
+    const c = src[i];
+    let j;
+    if (c === "`" && (j = closer(i + 1, tick)) >= 0) {
       flush();
-      out.push({ t: "code", v: m[1] });
-      i += m[0].length;
-    } else if ((m = /^\*\*([^*\n]+)\*\*/.exec(rest))) {
-      flush();
-      out.push({ t: "strong", c: parseInline(m[1]) });
-      i += m[0].length;
-    } else if ((m = /^\*([^*\n]+)\*/.exec(rest)) || (m = /^_([^_\n]+)_/.exec(rest))) {
-      flush();
-      out.push({ t: "em", c: parseInline(m[1]) });
-      i += m[0].length;
-    } else if ((m = /^!?\[([^\]\n]*)\]\(([^)\s]*)\)/.exec(rest))) {
-      flush();
-      const isImage = rest.startsWith("!");
-      const label = m[1] || m[2];
-      if (!isImage && LINK_OK.test(m[2])) out.push({ t: "link", href: m[2], c: [{ t: "text", v: label }] });
-      else out.push({ t: "text", v: isImage ? `[image: ${m[1]}]` : m[0] });
-      i += m[0].length;
-    } else {
-      text += src[i];
-      i++;
+      out.push({ t: "code", v: src.slice(i + 1, j) });
+      i = j + 1;
+      continue;
     }
+    if (c === "*" && src[i + 1] === "*" && (j = closer(i + 2, star)) >= 0 && src[j + 1] === "*") {
+      flush();
+      out.push({ t: "strong", c: parseInline(src.slice(i + 2, j)) });
+      i = j + 2;
+      continue;
+    }
+    if ((c === "*" && (j = closer(i + 1, star)) >= 0) || (c === "_" && (j = closer(i + 1, under)) >= 0)) {
+      flush();
+      out.push({ t: "em", c: parseInline(src.slice(i + 1, j)) });
+      i = j + 1;
+      continue;
+    }
+    const isImage = c === "!";
+    const b = isImage ? i + 1 : i;
+    if (src[b] === "[") {
+      const e = close[b + 1];
+      if (e < n && e < nl[b + 1] && src[e + 1] === "(") {
+        const p = paren[e + 2];
+        if (p < n && p < ws[e + 2]) {
+          const label = src.slice(b + 1, e);
+          const url = src.slice(e + 2, p);
+          flush();
+          if (!isImage && LINK_OK.test(url)) out.push({ t: "link", href: url, c: [{ t: "text", v: label || url }] });
+          else out.push({ t: "text", v: isImage ? `[image: ${label}]` : src.slice(i, p + 1) });
+          i = p + 1;
+          continue;
+        }
+      }
+    }
+    text += c;
+    i++;
   }
   flush();
   return out;
