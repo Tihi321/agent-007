@@ -82,6 +82,7 @@ export function start(env) {
       ctx.closeDetails();
       clear(main, el);
       if (env.focusMain) main.focus();
+      if (el.afterMount) el.afterMount();
     },
     signedIn: (user) => {
       state.user = user;
@@ -97,6 +98,7 @@ export function start(env) {
       clear(details, el);
       setShell();
     },
+    detailsOpen: () => detailsOpen,
     closeDetails: () => {
       if (!detailsOpen) return;
       detailsOpen = false;

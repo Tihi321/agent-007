@@ -308,6 +308,8 @@ Order: WR1, then WR2 and WR6 in parallel, then WR3, WR4 and WR5 in parallel, the
 - **Done:** the journey test passes, and one new resume test passes (§8).
 
 ### WR4 Details pane
+- **Status: DONE** (committed before WR3, because chat.js imports details.js). Evidence: `yarn build` ok; full run 1598 tests, 1597 pass, 0 fail, 1 skipped. Pin, rename, export and delete from the pane, the More popover focus/Escape behaviour and the layout are UNTESTED (WU8, WU9).
+- **Deviations:** (1) Thread rows are `<a href>` with `aria-current="true"` (not "page"), so the shell keeps exactly one `aria-current=page` (the sidebar row). (2) `renderDetails(ctx, bot, {botId, thread, onClose, onStarter})` returns `div.detailsbody` with `refresh()`, `setThread(id)`, `focusClose()`; the aside and its label are the shell's. (3) Escape anywhere in the pane (no menu open) closes the pane. (4) The click-outside close of the More menu listens on the pane only (no document listener, which would leak per chat). (5) The pane has no thread search (the sidebar searches chats). (6) app.js: `ctx.detailsOpen()` and an `el.afterMount()` hook in `ctx.mount` (mount closes the details, so a view opens its pane after it is mounted).
 - **Inputs:** §3.3 (details pane), the existing thread calls.
 - **Outputs:** `details.js` `renderDetails(ctx, bot, {thread})`.
 - **Contracts:**

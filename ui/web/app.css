@@ -170,3 +170,21 @@ fieldset { border: 1px solid var(--border); border-radius: var(--radius); margin
 .table-wrap th, .table-wrap td { padding: 4px 10px; border: 1px solid var(--border); text-align: left; vertical-align: top; }
 .table-wrap th { background: var(--panel-2); }
 .md hr { border: 0; border-top: 1px solid var(--border); margin: 12px 0; }
+
+/* Details pane (WR4) */
+.detailshead { display: flex; align-items: center; justify-content: space-between; }
+.detailshead h2, .dsec h2 { margin: 0; font-size: var(--fs-md); }
+.who { display: flex; flex-direction: column; align-items: center; gap: var(--space-1); text-align: center; padding: var(--space-3) 0; }
+.who p { margin: 0; }
+.who-name { font-size: var(--fs-xl); font-weight: 700; }
+.dsec { margin-top: var(--space-4); }
+.dsec .row { margin-bottom: var(--space-2); }
+.threadlist { list-style: none; margin: 0; padding: 0; }
+.threadrow { position: relative; display: flex; align-items: center; gap: var(--space-1); border-radius: 10px; }
+.threadrow.is-current { background: var(--selected); }
+.thread-open { flex: 1; min-width: 0; display: flex; flex-direction: column; min-height: 56px; padding: 8px; justify-content: center; color: var(--text); text-decoration: none; }
+.thread-top { display: flex; align-items: baseline; gap: var(--space-1); }
+.thread-title { flex: 1; min-width: 0; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-slot { position: absolute; right: 8px; top: 100%; z-index: 20; }
+.thread-pop { right: 0; }
+.popover .danger { color: var(--danger); }
