@@ -317,6 +317,7 @@ async function stopService(name: SvcName): Promise<void> {
 
 async function restartService(name: SvcName): Promise<void> {
   await stopService(name);
+  if (name === "jobrunner" && !settings.jobrunner) return; // the toggle is off: the job runner must not start
   await startService(name);
 }
 
@@ -563,8 +564,7 @@ function setupIpc(): void {
   });
   handle("retry", async (service): Promise<Result> => {
     if (service !== "gateway" && service !== "telegram" && service !== "jobrunner") return { ok: false, message: "Invalid service" };
-    await stopService(service);
-    await startService(service);
+    await restartService(service);
     return { ok: true };
   });
 }

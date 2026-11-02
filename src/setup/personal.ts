@@ -175,8 +175,6 @@ export function setupPersonal(o: {
   // termsAccepted.claude is the owner's decision (I41): true only when the owner ticked it in the setup window
   security["termsAccepted"] = { claude: answers.acceptClaudeTerms === true, antigravity: false };
 
-  write(p.configPath, `${JSON.stringify(bootstrap, null, 2)}\n`);
-  write(p.securityPath, `${JSON.stringify(security, null, 2)}\n`);
   const secrets: Obj = { telegramBotToken: answers.telegram?.botToken ?? PLACEHOLDER, strataApiKey: "", proxyApiKey: answers.proxyApiKey ?? PLACEHOLDER };
   if (existsSync(p.secretsPath)) res.kept.push(p.secretsPath);
   else {
@@ -184,11 +182,15 @@ export function setupPersonal(o: {
     res.created.push(p.secretsPath);
   }
   // the gateway creates web.key here: the folder gets the same owner-only ACL first
+  // config.json is written LAST and is what setupDone looks at, so a failed ACL step above leaves setup "not done" and a rerun heals it:
+  // the ACL on the web folder is applied again while config.json is still missing (the grant is idempotent).
   const webDir = join(data, "web");
   const webExisted = existsSync(webDir);
   mkdirSync(webDir, { recursive: true });
-  if (!webExisted) icacls(aclArgs(webDir, true));
+  if (!webExisted || !existsSync(p.configPath)) icacls(aclArgs(webDir, true));
   for (const d of [join(root, "logs")]) mkdirSync(d, { recursive: true });
+  write(p.securityPath, `${JSON.stringify(security, null, 2)}\n`);
+  write(p.configPath, `${JSON.stringify(bootstrap, null, 2)}\n`);
 
   if (answers.proxyApiKey === undefined) res.mustFill.push("secrets.json proxyApiKey: the ACP proxy key (only for the Claude presets)");
   res.mustFill.push("secrets.json strataApiKey: the Strata key, if your Strata asks for one (leave empty otherwise)");
@@ -296,8 +298,12 @@ export function ensureJobrunner(root: string, o: { resourcesDir: string; icacls?
     const cfg = JSON.parse(readFileSync(join(o.resourcesDir, "config", "jobrunner.example.json"), "utf8")) as Obj;
     for (const k of Object.keys(cfg)) if (k.startsWith("_")) delete cfg[k];
     cfg["paths"] = { configDir: jrDir, dataDir, templatesDir: join(jrDir, "templates"), settingsDir: join(root, "settings") };
-    cfg["cwdAllowlist"] = [join(root, "data", "workspace")]; // must not be empty; the owner changes it in the settings UI
-    cfg["denyPaths"] = [root];
+    // The default workspace sits inside the root, so the root itself cannot be denied (the deny list wins over the allowlist).
+    // Deny the sensitive subfolders instead: secrets, config, settings, the job runner's own config and data.
+    const workspace = join(root, "data", "workspace");
+    mkdirSync(workspace, { recursive: true });
+    cfg["cwdAllowlist"] = [workspace]; // must not be empty; the owner changes it in the settings UI
+    cfg["denyPaths"] = ["secrets", "config", "settings", "jobrunner", "jobrunner-data"].map((d) => join(root, d));
     const hub = (cfg["hub"] ?? {}) as Obj;
     hub["dir"] = join(jrDir, "hub");
     hub["services"] = [];
@@ -332,7 +338,12 @@ export function ensureJobrunner(root: string, o: { resourcesDir: string; icacls?
     throw new Error(`the job runner secrets file has no valid ipcHmacKey: ${secretsPath}`);
   }
   if (agentHasFile && agentKey === undefined) {
-    const s = JSON.parse(readFileSync(agentSecretsPath, "utf8")) as Obj;
+    let s: Obj;
+    try {
+      s = JSON.parse(readFileSync(agentSecretsPath, "utf8")) as Obj;
+    } catch {
+      throw new Error("the agent secrets file is not valid JSON"); // fixed text: never the file's content
+    }
     s["ipcHmacKey"] = key;
     replaceSecretFile(agentSecretsPath, `${JSON.stringify(s, null, 2)}\n`, icacls);
   }

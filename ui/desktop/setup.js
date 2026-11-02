@@ -9,6 +9,7 @@ const TITLES = { gateway: "Gateway", telegram: "Telegram agent", jobrunner: "Job
 
 let state = null;
 let usePicked = false;
+let termsLoaded = false;
 
 function setText(id, text) {
   $(id).textContent = text;
@@ -81,7 +82,9 @@ function render(s) {
     (s.portable ? "Portable exe path that is registered: " : "Registered path: ") + s.loginItemPath + (s.portable ? ". If you move the exe, turn this off and on again." : "") + (s.isPackaged ? "" : " (not registered when run from source)"),
   );
   setText("key-state", s.hasProxyKey ? "a key is stored" : "no key stored");
-  $("u-terms").checked = s.claudeTerms;
+  // the tick is loaded from the state once; later pushes must not clobber an unsaved tick (it starts unticked)
+  if (!termsLoaded) $("u-terms").checked = s.claudeTerms;
+  termsLoaded = true;
   setText("root-path", s.root);
   setText("data-note", "The agent is never allowed to write to this folder. The same folder is used by the installer and the portable exe.");
 }

@@ -32,7 +32,7 @@ module.exports = {
     {
       from: "dist",
       to: "app/dist",
-      filter: ["**/*", "!test/**", "!scripts/smoke/**", "!scripts/bakeoff/**", "!scripts/spike/**", "!scripts/*-eval/**", "!**/*.map"],
+      filter: ["**/*", "!test/**", "!scripts/smoke/**", "!scripts/bakeoff/**", "!scripts/spike/**", "!scripts/*-eval/**", "!**/*.map", "!builder-debug.yml"],
     },
     { from: "prompts", to: "app/prompts" },
     { from: "config", to: "app/config", filter: ["*.example.json", "personas/**", "templates/**"] },

@@ -6,6 +6,7 @@ import test from "node:test";
 import { missingConfigMessage } from "../src/config/load.js";
 import { EXIT_FATAL, runMain } from "../src/main.js";
 import { setupLocal } from "../scripts/setup-local.js";
+import { checkCwd } from "../src/jobrunner/cwd.js";
 import { parseJobRunnerConfig } from "../src/jobrunner/limits.js";
 import { ensureJobrunner, hasTelegramPlaceholders, setupPersonal, updatePersonal } from "../src/setup/personal.js";
 import { validateSecurityDoc } from "../src/settings/schema.js";
@@ -85,6 +86,9 @@ test("ensureJobrunner creates the config and the secrets (ACL first), shares the
   const a = ensureJobrunner(dir, { resourcesDir: process.cwd(), icacls: acl.run });
   const cfg = parseJobRunnerConfig(JSON.parse(readFileSync(a.configPath, "utf8")));
   assert.equal(cfg.settingsUi.enabled, true);
+  const policy = { allowlist: cfg.cwdAllowlist, denyPaths: cfg.denyPaths };
+  assert.equal(checkCwd(join(dir, "data", "workspace"), policy).ok, true, "the default workspace is usable");
+  assert.equal(checkCwd(join(dir, "secrets"), policy).ok, false, "the secrets folder stays refused");
   assert.ok(cfg.paths.dataDir.startsWith(dir) && cfg.paths.configDir.startsWith(dir));
   assert.equal((JSON.parse(readFileSync(a.secretsPath, "utf8")) as { ipcHmacKey: string }).ipcHmacKey, agentKey);
   assert.equal(acl.calls.filter((c) => c.path === a.secretsPath)[0]?.size, 0, "ACL set while the file is empty");
