@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { totpAt, totpStep } from "../../src/web/totp.js";
 import { ROOT } from "../settings/helpers.js";
 import { ScriptedEngine, makeApp, until } from "./app.js";
-import { FElement, all, buttonByText, byName, byTag, fakeDocument } from "./fakeDom.js";
+import { FElement, FNode, all, buttonByText, byName, byTag, fakeDocument } from "./fakeDom.js";
 import { http } from "./helpers.js";
 
 const DIST = join(ROOT, "dist", "ui", "web");
@@ -72,11 +72,12 @@ test("safe Markdown: HTML stays text, javascript: links are not links, images ne
   assert.equal(r[1].rows[0][1][0].t, "strong");
   assert.equal(r[3].items.length, 2, "nested items stay one level");
   assert.deepEqual(parseMarkdown("```inline```").map((x: any) => x.t), ["p"], "a fence line with a backtick later is not a code block");
-  // pathological input is linear, not catastrophic
+  // pathological input is linear: unclosed delimiters never make the parser rescan the rest of the line
   const t0 = Date.now();
   parseMarkdown("*".repeat(20000) + "[".repeat(20000) + "`".repeat(20000));
+  parseMarkdown("*[`".repeat(20000) + "[a](".repeat(20000));
   parseMarkdown("|".repeat(20000) + "\n" + "|-".repeat(10000) + "\n" + "|".repeat(20000));
-  assert.ok(Date.now() - t0 < 2000);
+  assert.ok(Date.now() - t0 < 200, `took ${Date.now() - t0} ms`);
 });
 
 test("shortTime: today, yesterday, the past week, this year, older", async () => {
@@ -223,7 +224,9 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     await byTag(body, "form")[0]!.fire("submit");
     await until(() => /Your bots/.test(body.textContent) && /Helper/.test(body.textContent));
     assert.match(body.textContent, /Claude Sonnet \(cloud\)/, "the cloud badge on the card");
-    assert.ok(all(body).some((e) => e.getAttribute("role") === "img" && e.getAttribute("aria-label") === "Violet circle"), "the picked look is saved");
+    const looks = all(body).filter((e) => /\bavatar-/.test(e.getAttribute("class") ?? ""));
+    assert.ok(looks.some((e) => /\bavatar-owl\b/.test(e.getAttribute("class") ?? "")), "the picked look is saved");
+    assert.ok(looks.every((e) => e.getAttribute("aria-hidden") === "true" && !e.getAttribute("role")), "avatars outside the picker are decorative");
     checkAccessibility(body, "bots");
     // chat
     await buttonByText(body, "Chat").fire("click");
@@ -287,16 +290,21 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
 test("WA5: a dropped stream resumes from the last event id with no duplicated or lost text", async () => {
   (globalThis as any).document = fakeDocument;
   const { renderChat } = await load("chat.js");
+  const { renderMarkdown } = await load("markdown.js");
+  // blank lines inside and outside a fence, spread over several live paints: finished blocks are appended, the open one is redrawn
   const events = [
     { id: 1, type: "delta", data: { text: "Hello " } },
-    { id: 2, type: "delta", data: { text: "big " } },
-    { id: 3, type: "delta", data: { text: "**world**" } },
+    { id: 2, type: "delta", data: { text: "big\n\n```js\na\n\nb" } },
+    { id: 3, type: "delta", data: { text: "\n```\n\n**world**" } },
+    { id: 4, type: "delta", data: { text: " and\n\n- more" } },
   ];
+  const full = events.map((e) => e.data.text).join("");
+  const shape = (n: FNode): string => (n instanceof FElement ? `<${n.tagName} ${n.className}>${n.childNodes.map(shape).join("")}</>` : n.textContent);
   const lasts: number[] = [];
   let done = false;
   let root: FElement | undefined;
   const bot = { id: "b", name: "Bee", avatar: "robot", presetLabel: "strata", cloud: false, starters: [] };
-  const finalMessages = [{ role: "user", text: "hi", at: 1 }, { role: "assistant", text: "Hello big **world**", at: 2 }];
+  const finalMessages = [{ role: "user", text: "hi", at: 1 }, { role: "assistant", text: full, at: 2 }];
   const api = {
     async call(path: string) {
       if (path === "/api/bots/get") return { ok: true, status: 200, data: { bot } };
@@ -304,27 +312,68 @@ test("WA5: a dropped stream resumes from the last event id with no duplicated or
       if (path === "/api/chat/usage") return { ok: true, status: 200, data: { maxTokensPerDay: 10, tokensToday: 1, chatsToday: 1, maxChatsPerDay: 5, paid: [] } };
       return { ok: true, status: 200, data: { threads: [] } };
     },
-    async stream(_b: string, _t: string, o: { last: number; onEvent: (e: unknown) => void }) {
+    async stream(_b: string, _t: string, o: { last: number; onEvent: (e: unknown) => void; onOpen: () => void }) {
       lasts.push(o.last);
       if (lasts.length === 1) {
         events.slice(0, 2).forEach((e) => o.onEvent(e));
-        return { ok: false }; // the connection drops mid-answer
+        await new Promise((r) => setTimeout(r, 150)); // a live paint while the fence is still open
+        return { ok: false, status: 0 }; // the connection drops mid-answer
       }
+      assert.deepEqual(banner, [true], "the dropped stream shows the offline banner");
+      o.onOpen();
+      assert.deepEqual(banner, [true, false], "the banner goes when the stream is back");
       await until(() => root !== undefined);
-      events.filter((e) => e.id > o.last).forEach((e) => o.onEvent(e));
-      await new Promise((r) => setTimeout(r, 150)); // let the 100 ms live render run
-      const liveEl = all(root!).find((e) => e.className.includes("live"))!;
-      assert.equal(liveEl.textContent, "Hello big world", "the live bubble has every delta once");
+      for (const e of events.filter((x) => x.id > o.last)) {
+        o.onEvent(e);
+        await new Promise((r) => setTimeout(r, 150)); // let the 100 ms live render run
+      }
+      const liveBody = all(root!).find((e) => e.className === "live-body")!;
+      assert.equal(liveBody.childNodes.flatMap((md) => md.childNodes).map(shape).join(""), renderMarkdown(full).childNodes.map(shape).join(""), "the live bubble renders every delta once, as the whole text would");
       done = true;
       return { ok: true };
     },
   };
-  const ctx = { api, resumeDelays: [1, 1, 1], refreshBots: async () => {}, openDetails() {}, closeDetails() {}, detailsOpen: () => false, go() {}, replace() {}, confirm: () => true, prompt: () => "", download() {} };
+  const banner: boolean[] = [];
+  const ctx = { api, resumeDelays: [1, 1, 1], streamLost: (on: boolean) => banner.push(on), refreshBots: async () => {}, openDetails() {}, closeDetails() {}, detailsOpen: () => false, go() {}, replace() {}, confirm: () => true, prompt: () => "", download() {} };
   root = (await renderChat(ctx, "b", "t1")) as FElement;
   const finalBubbles = () => all(root!).filter((e) => e.tagName === "article" && e.className.startsWith("msg msg-assistant"));
   await until(() => finalBubbles().length === 1);
   assert.deepEqual(lasts, [0, 2], "the second call carried the last event id");
-  assert.equal(finalBubbles()[0]!.textContent.replace(/Regenerate/g, ""), "Hello big world");
+  assert.deepEqual(banner, [true, false]);
+  assert.equal(finalBubbles()[0]!.textContent.replace(/Regenerate/g, ""), renderMarkdown(full).textContent);
+});
+
+test("after Connection lost the partial answer is marked and Send stays off until the run is known to be over", async () => {
+  (globalThis as any).document = fakeDocument;
+  const { renderChat } = await load("chat.js");
+  let done = false;
+  const bot = { id: "b", name: "Bee", avatar: "robot", presetLabel: "strata", cloud: false, starters: [] };
+  const messages = [{ role: "user", text: "hi", at: 1 }, { role: "assistant", text: "Half an answer, then the rest", at: 2 }];
+  const api = {
+    async call(path: string) {
+      if (path === "/api/bots/get") return { ok: true, status: 200, data: { bot } };
+      if (path === "/api/chat/thread/get") return { ok: true, status: 200, data: { thread: { messages: done ? messages : [messages[0]] }, running: !done } };
+      return { ok: true, status: 200, data: { threads: [], paid: [] } };
+    },
+    async stream(_b: string, _t: string, o: { last: number; onEvent: (e: unknown) => void }) {
+      if (o.last === 0) o.onEvent({ id: 1, type: "delta", data: { text: "Half an answer" } });
+      return { ok: false, status: 0 }; // the stream never comes back
+    },
+  };
+  const banner: boolean[] = [];
+  const ctx = { api, resumeDelays: [1, 1, 1], watchMs: 5, streamLost: (on: boolean) => banner.push(on), refreshBots: async () => {}, openDetails() {}, closeDetails() {}, detailsOpen: () => false, go() {}, replace() {}, confirm: () => true, prompt: () => "", download() {} };
+  const root = (await renderChat(ctx, "b", "t1")) as FElement;
+  await until(() => /Connection lost\.(?! Reconnecting)/.test(root.textContent));
+  const live = all(root).find((e) => e.className.includes("live"))!;
+  assert.match(live.className, /is-partial/);
+  assert.match(live.textContent, /Half an answer.*Partial answer/, "the partial text stays, marked as partial");
+  assert.ok(buttonByText(root, "Send").disabled && !buttonByText(root, "Stop").hidden, "no new message while the run may still be going");
+  assert.deepEqual(banner, [true]);
+  done = true; // the run finishes on the server; the view learns it without the stream
+  await until(() => all(root).some((e) => e.tagName === "article" && /then the rest/.test(e.textContent)));
+  assert.ok(!buttonByText(root, "Send").hidden && buttonByText(root, "Stop").hidden && live.hidden);
+  assert.deepEqual(banner, [true, false]);
+  root.dispose?.();
 });
 
 test("the gateway serves the built UI: index with the strict headers, scripts and styles with the right types, nothing outside the map", async () => {

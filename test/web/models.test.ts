@@ -53,6 +53,7 @@ test("classify: source decides, payload cannot", () => {
   assert.equal(classify(custom("http://127.0.0.1:9000/v1"), "m").privacy, "local");
   assert.equal(classify(custom("http://localhost:9000/v1"), "m").privacy, "local");
   assert.equal(classify(custom("http://127.0.0.1:9000/v1", { treatAsCloud: true }), "m").privacy, "cloud");
+  assert.equal(classify(custom("http://127.0.0.1:8787/v1"), "m").privacy, "cloud"); // the ACP proxy port is always cloud
   assert.equal(classify(custom("https://openrouter.ai/api/v1", { privacy: "local" }), "m").privacy, "cloud");
   assert.equal(classify(custom("http://127.0.0.1.evil.com/v1"), "m").privacy, "cloud");
   assert.equal(classify(custom("http://192.168.1.5:1234/v1"), "m").privacy, "cloud");
@@ -239,12 +240,15 @@ function modelsEnv(urls: { proxy: string; lmstudio: string; strata: string }, ex
     { id: "claude-sonnet", kind: "acp", baseUrl: `${urls.proxy}/v1`, providerId: "claude", apiKeyRef: "proxyApiKey", label: "Claude Sonnet", modelId: "claude/sonnet", contextWindow: 200000, maxTokens: 8192, privacy: "cloud", autoFallback: false },
   ];
   const config = { model: { runners: { lmstudio: { baseUrl: `${urls.lmstudio}/v1` }, strata: { baseUrl: urls.strata, contextWindow: 8192, maxTokens: 1024 } } } } as unknown as SecuritySnapshot["config"];
+  const box = new SecretBox(SecretBox.generateKey());
+  const learned: string[] = []; // what the catalogue hands to the gateway's log redactor
+  const open = (dir: string, audit: WebAudit) => createPresetCatalog({ dataDir: dir, box, audit, secrets: { proxyApiKey: PROXY_KEY }, loadSecurity: () => ({ presets: settings, terms: { claude: true, antigravity: false }, config }), securityHash: () => "fixed", resolver, intervalMs: 0, onSecret: (k) => learned.push(k) });
   const models = (dir: string, audit: WebAudit) => {
-    const catalog = createPresetCatalog({ dataDir: dir, box: new SecretBox(SecretBox.generateKey()), audit, secrets: { proxyApiKey: PROXY_KEY }, loadSecurity: () => ({ presets: settings, terms: { claude: true, antigravity: false }, config }), securityHash: () => "fixed", resolver, intervalMs: 0 });
+    const catalog = open(dir, audit);
     holder.catalog = catalog;
     return { catalog, deps: { resolver, lastFetch: new Map<string, number>(), ...(extra.fetch ? { fetch: extra.fetch } : {}) } };
   };
-  return { models, dns, holder };
+  return { models, open, dns, holder, learned };
 }
 
 async function stepUpOwner(t: TestApp): Promise<void> {
@@ -371,14 +375,19 @@ test("custom provider: SSRF, key secrecy, billing", async () => {
   try {
     await stepUpOwner(t);
     const good = { label: "Example AI", baseUrl: "https://api.example.test/v1", apiKey: KEY, billing: "subscription" };
-    // refused at save: plain http off this PC, a host that resolves to a private address, credentials, a query, no billing for a cloud URL
-    for (const bad of [{ baseUrl: "http://api.example.test/v1" }, { baseUrl: "https://evil.example.test/v1" }, { baseUrl: "https://u:p@api.example.test/v1" }, { baseUrl: "https://api.example.test/v1?x=1" }, { billing: undefined }]) {
+    // refused at save: plain http off this PC, a host that resolves to a private address, credentials, a query, agent-007's own gateway port, no billing for a cloud URL
+    for (const bad of [{ baseUrl: "http://api.example.test/v1" }, { baseUrl: "https://evil.example.test/v1" }, { baseUrl: "https://u:p@api.example.test/v1" }, { baseUrl: "https://api.example.test/v1?x=1" }, { baseUrl: "http://127.0.0.1:47009/v1" }, { billing: undefined }]) {
       const r = await call("sources/add", { ...good, ...bad });
       assert.equal(r.status, 400, JSON.stringify(bad) + r.text);
     }
     assert.equal((await call("list")).json().sources.length, 3, "nothing was saved");
     const added = await call("sources/add", good);
     assert.deepEqual([added.status, added.json().sourceId], [200, "exampleai"]);
+    assert.ok(env.learned.includes(KEY), "a saved key goes to the log redactor");
+    env.learned.length = 0;
+    const booted = env.open(t.dir, t.audit);
+    booted.close();
+    assert.deepEqual(env.learned, [KEY], "so does a stored key when the gateway starts");
     const s1 = await source();
     assert.deepEqual([s1.privacy, s1.hasKey, s1.baseUrl, "apiKey" in s1], ["cloud", true, "https://api.example.test/v1", false]);
     // the base URL is immutable
@@ -445,6 +454,7 @@ test("remove in use", async () => {
     const alice = await t.addUser("alice@example.com", { presets: ["strata", "codex-gpt-5"] });
     const paidBot = (await t.post(alice, "/api/bots/create", { ...BOT, name: "Paid", preset: "codex-gpt-5", fallback: "strata", tools: ["tool_search"] })).json().bot.id;
     const solo = (await t.post(alice, "/api/bots/create", { ...BOT, name: "Solo", preset: "codex-gpt-5", tools: ["tool_search"] })).json().bot.id;
+    const cloudy = (await t.post(alice, "/api/bots/create", { ...BOT, name: "Cloudy", preset: "strata", cloudFallback: "codex-gpt-5", tools: ["tool_search"] })).json().bot.id;
     const grant = await t.post(t.owner, "/api/admin/paid/set", { userId: alice.userId, botId: paidBot, preset: "codex-gpt-5", enabled: true, perDay: 100, perMonth: 1000 });
     assert.equal(grant.status, 200, grant.text);
     assert.equal((await chat(t, alice, paidBot)).status, 200);
@@ -454,21 +464,31 @@ test("remove in use", async () => {
     assert.equal((await call("presets/remove", { presetId: "strata" })).status, 400);
     const refused = await call("presets/remove", { presetId: "codex-gpt-5" });
     assert.deepEqual([refused.status, refused.json().error], [409, "in_use"]);
-    assert.deepEqual(refused.json().bots.map((b: { user: string; bot: string }) => `${b.user}/${b.bot}`).sort(), ["alice@example.com/Paid", "alice@example.com/Solo"]);
+    assert.deepEqual(refused.json().bots.map((b: { user: string; bot: string }) => `${b.user}/${b.bot}`).sort(), ["alice@example.com/Cloudy", "alice@example.com/Paid", "alice@example.com/Solo"]);
     assert.ok(idsOf(await call("list")).includes("codex-gpt-5"), "still there");
     assert.ok(t.app.chat.paid.grant(alice.userId, paidBot, "codex-gpt-5"));
 
-    // force removes it and its paid grants; the next turn falls back or is refused
+    // force removes it, its paid grants, its id in the user's caps and in every bot's route; the next turn falls back or is refused
     assert.equal((await call("presets/remove", { presetId: "codex-gpt-5", force: true })).status, 200);
     assert.ok(!idsOf(await call("list")).includes("codex-gpt-5"));
     assert.equal(t.app.chat.paid.grant(alice.userId, paidBot, "codex-gpt-5"), undefined, "its paid grants went with it");
     assert.ok(!(await t.post(t.owner, "/api/bots/options")).json().presets.some((p: { id: string }) => p.id === "codex-gpt-5"));
+    assert.deepEqual(t.app.stack.users.read().users[alice.userId]!.caps.presets, ["strata"], "gone from the user's caps");
+    const route = async (id: string) => {
+      const b = (await t.post(alice, "/api/bots/get", { id })).json().bot;
+      return [b.preset, b.cloudFallback, b.fallback, b.presetLabel];
+    };
+    assert.deepEqual(await route(paidBot), ["", null, "strata", "Needs setup: pick a model"], "a lost main model is not replaced: the bot needs setup");
+    assert.deepEqual(await route(cloudy), ["strata", null, null, "Strata"]);
     assert.equal((await chat(t, alice, paidBot)).status, 200);
     assert.equal(engine.calls.at(-1)!.bot.route.primary, "strata", "falls back to the local link");
-    assert.ok(t.audit.events.some((e) => e.kind === "route_changed" && e.detail?.["preset"] === "codex-gpt-5" && e.detail?.["why"] === "missing"));
+    assert.ok(t.audit.events.some((e) => e.kind === "route_changed" && e.detail?.["preset"] === "" && e.detail?.["why"] === "missing"));
     const gone = await chat(t, alice, solo);
     assert.equal(gone.status, 403);
     assert.match(gone.json().message, /no longer set up/);
+    // the same id added again (ids are deterministic) is neither granted back nor used by the old bots
+    assert.equal((await call("presets/add", { sourceId: "acp-proxy", models: [{ modelId: "codex/gpt-5" }] })).json().added[0].presetId, "codex-gpt-5");
+    assert.equal((await chat(t, alice, solo)).status, 403);
   } finally {
     await t.close();
   }

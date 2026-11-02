@@ -48,7 +48,10 @@ export function createApi(opts = {}) {
         return null;
       }
     },
-    /** Follows a thread's run over SSE with fetch, so the Last-Event-ID header can be set. Calls onEvent({id, type, data}). Resolves when the stream ends. */
+    /**
+     * Follows a thread's run over SSE with fetch, so the Last-Event-ID header can be set. Calls onOpen() once the server answers and
+     * onEvent({id, type, data}) per event. Resolves {ok: true} when the stream ends, else {ok: false, status} (status 0: the connection dropped).
+     */
     async stream(bot, thread, o) {
       const headers = {};
       if (o.last) headers["last-event-id"] = String(o.last);
@@ -56,9 +59,10 @@ export function createApi(opts = {}) {
       try {
         res = await fetchFn(`/api/chat/stream?bot=${encodeURIComponent(bot)}&thread=${encodeURIComponent(thread)}`, { headers, credentials: "same-origin", signal: o.signal });
       } catch {
-        return { ok: false };
+        return { ok: false, status: 0 };
       }
-      if (!res.ok || !res.body) return { ok: false };
+      if (!res.ok || !res.body) return { ok: false, status: res.status };
+      if (o.onOpen) o.onOpen();
       const reader = res.body.getReader();
       const dec = new TextDecoder();
       let buf = "";
@@ -67,7 +71,7 @@ export function createApi(opts = {}) {
         try {
           r = await reader.read();
         } catch {
-          return { ok: false };
+          return { ok: false, status: 0 };
         }
         if (r.done) break;
         buf += dec.decode(r.value, { stream: true });

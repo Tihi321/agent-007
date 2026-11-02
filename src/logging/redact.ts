@@ -24,6 +24,20 @@ export function createRedactor(secrets: Iterable<string | undefined>): Redactor 
   };
 }
 
+/** A redactor that can learn more secrets while the process runs (keys saved or unsealed later). It never forgets one. */
+export function createGrowingRedactor(initial: Iterable<string | undefined>): Redactor & { add(secret: string | undefined): void } {
+  const known = new Set<string>();
+  for (const s of initial) if (typeof s === "string" && s.length >= MIN_SECRET_LENGTH) known.add(s);
+  let current = createRedactor(known);
+  const redact = ((text: string) => current(text)) as Redactor & { add(secret: string | undefined): void };
+  redact.add = (secret) => {
+    if (typeof secret !== "string" || secret.length < MIN_SECRET_LENGTH || known.has(secret)) return;
+    known.add(secret);
+    current = createRedactor(known);
+  };
+  return redact;
+}
+
 /** Redacts every string inside a JSON-like value (keys are kept). Returns a copy. */
 export function redactDeep<T>(value: T, redact: Redactor): T {
   const walk = (v: unknown, depth: number): unknown => {

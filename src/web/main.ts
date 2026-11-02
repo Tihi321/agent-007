@@ -22,7 +22,7 @@ import { loadSecrets } from "../config/secrets.js";
 import type { Secrets } from "../config/secrets.js";
 import { composeRawConfig } from "../settings/load.js";
 import { defaultsFromEnv, parseConfig } from "../config/schema.js";
-import { createRedactor } from "../logging/redact.js";
+import { createGrowingRedactor } from "../logging/redact.js";
 import { DEFAULT_PROXY_PORT, ProxyStatus, fetchHealth, proxyEndpoint } from "../proxy/health.js";
 import { startWebApp } from "./app.js";
 import type { WebApp } from "./app.js";
@@ -152,12 +152,13 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
       throw e;
     }
   };
-  const redact = createRedactor([secrets.lmStudioApiToken, secrets.strataApiKey, secrets.proxyApiKey].filter((v): v is string => typeof v === "string" && v !== ""));
+  // custom provider keys join it when they are saved or unsealed, and all stored ones when the catalogue starts
+  const redact = createGrowingRedactor([secrets.lmStudioApiToken, secrets.strataApiKey, secrets.proxyApiKey]);
   const dataDir = config.paths.dataDir;
   const audit = createWebAudit({ dir: webPaths(dataDir).auditDir, redact });
   const status = new ProxyStatus();
   // MS2: one catalogue of the security.json presets and the Models page presets; every reader below asks it per call
-  const catalog = createPresetCatalog({ dataDir, box: new SecretBox(loadOrCreateKey(webDir.keyFile)), audit, secrets, loadSecurity, securityHash });
+  const catalog = createPresetCatalog({ dataDir, box: new SecretBox(loadOrCreateKey(webDir.keyFile)), audit, secrets, loadSecurity, securityHash, onSecret: (k) => redact.add(k) });
   const hasProxyPreset = (): boolean => catalog.presets().some((p) => p.kind === "acp" && p.baseUrl);
   const watchProxy = async (): Promise<void> => {
     if (!hasProxyPreset()) return;

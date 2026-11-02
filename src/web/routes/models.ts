@@ -10,7 +10,7 @@
 import { lookup } from "node:dns/promises";
 import { isPaidPreset } from "../../bots/schema.js";
 import type { PresetConfig } from "../../bots/schema.js";
-import { MODEL_ID_PATTERN, RESERVED_SOURCE_IDS, SOURCE_ID_PATTERN, classify, derivePrivacy, findExistingPreset, groupOf, isLiteralLoopbackUrl, isSetUp, presetIdFor } from "../../models/sources.js";
+import { MODEL_ID_PATTERN, RESERVED_SOURCE_IDS, SOURCE_ID_PATTERN, classify, derivePrivacy, findExistingPreset, groupOf, isLiteralLoopbackUrl, isProxyPortUrl, isSetUp, presetIdFor } from "../../models/sources.js";
 import type { ExistingPreset, FetchedRow, ModelSource } from "../../models/sources.js";
 import type { AuthMethod } from "../../proxy/health.js";
 import type { WebAudit } from "../audit.js";
@@ -20,7 +20,7 @@ import type { FetchFn } from "../models/fetch.js";
 import type { PresetCatalog } from "../models/catalog.js";
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, MAX_BASE_URL, MAX_CUSTOM_SOURCES, MAX_PRESET_LABEL, MAX_SOURCE_LABEL, MAX_TOKENS_MIN, MAX_WEB_PRESETS, maxTokensLimit } from "../models/store.js";
 import { chainOf } from "../runtime/route.js";
-import { checkUrl } from "../runtime/ssrf.js";
+import { checkUrl, isBlockedLoopbackPort } from "../runtime/ssrf.js";
 import type { Resolver } from "../runtime/ssrf.js";
 import type { RouteCtx, RouteDef, RouteResult } from "../server.js";
 import type { WebStack } from "../stack.js";
@@ -146,6 +146,45 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
     return n;
   }
 
+  /**
+   * After a remove: the ids leave every user's and every open invite's caps and every bot's route fields, so a preset added again later
+   * under the same id (ids are deterministic) is not silently granted or used again. A bot that loses its main model needs setup
+   * (UserBotStore.dropPresets). Returns counts for the audit line.
+   */
+  function purgePresets(ids: ReadonlySet<string>): { caps: number; bots: number; needsSetup: number } {
+    let caps = 0;
+    if (Object.values(stack.users.read().users).some((u) => u.caps.presets.some((p) => ids.has(p)))) {
+      stack.users.update((d) => {
+        for (const u of Object.values(d.users)) {
+          const keep = u.caps.presets.filter((p) => !ids.has(p));
+          if (keep.length !== u.caps.presets.length) {
+            u.caps.presets = keep;
+            caps++;
+          }
+        }
+      });
+    }
+    if (stack.invites.read().invites.some((inv) => inv.caps.presets.some((p) => ids.has(p)))) {
+      stack.invites.update((d) => {
+        for (const inv of d.invites) inv.caps.presets = inv.caps.presets.filter((p) => !ids.has(p));
+      });
+    }
+    let bots = 0;
+    let needsSetup = 0;
+    for (const userId of Object.keys(stack.users.read().users)) {
+      let changed: { botId: string; needsSetup: boolean }[];
+      try {
+        changed = chat.bots(userId).dropPresets(ids);
+      } catch {
+        continue; // an unreadable bot folder: its bots resolve the removed id as "missing" at every turn, as before
+      }
+      bots += changed.length;
+      needsSetup += changed.filter((b) => b.needsSetup).length;
+    }
+    for (const id of ids) chat.paid.dropPreset(id);
+    return { caps, bots, needsSetup };
+  }
+
   const inUse = (bots: { user: string; bot: string }[], what: string): ModelsError =>
     new ModelsError(409, "in_use", `${what} is used by ${bots.length} ${bots.length === 1 ? "bot" : "bots"}. Remove it anyway to make their chats fall back or be refused.`, { bots: bots.slice(0, 100) });
 
@@ -179,6 +218,7 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
     if (u.username !== "" || u.password !== "") throw bad("The base URL must not contain a user name or password. Use the API key field.");
     const baseUrl = u.origin + u.pathname.replace(/\/+$/, "");
     const loopback = isLiteralLoopbackUrl(baseUrl);
+    if (loopback && isBlockedLoopbackPort(baseUrl)) throw bad("That port is one of agent-007's own services, not a model server.");
     if (!loopback) {
       if (u.protocol !== "https:") throw bad("A provider that is not on this PC must use https.");
       const v = await checkUrl(baseUrl, [u.hostname], resolver ?? defaultResolver);
@@ -369,11 +409,12 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
           const force = b["force"] === true;
           const bots = botsUsing(new Set([presetId]));
           if (bots.length > 0 && !force) throw inUse(bots, "This model");
+          // the references go first: if anything fails, the model is still listed and the owner can remove it again (the purge repeats safely)
+          const purged = purgePresets(new Set([presetId]));
           catalog.update((draft) => {
             draft.doc.presets = draft.doc.presets.filter((x) => x.id !== presetId);
           });
-          chat.paid.dropPreset(presetId);
-          audit({ kind: "models_remove", user: me(c), detail: { presetId, force, bots: bots.length } });
+          audit({ kind: "models_remove", user: me(c), detail: { presetId, force, bots: bots.length, capsCleared: purged.caps, botsChanged: purged.bots, needsSetup: purged.needsSetup } });
           return { status: 200, body: { ok: true } };
         }),
     },
@@ -388,7 +429,7 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
           const label = text(b["label"], "The name", 1, MAX_SOURCE_LABEL);
           const { baseUrl, loopback } = await validateUrl(b["baseUrl"]);
           if (b["treatAsCloud"] !== undefined && typeof b["treatAsCloud"] !== "boolean") throw bad("Treat as cloud must be true or false.");
-          const treatAsCloud = loopback && b["treatAsCloud"] === true;
+          const treatAsCloud = loopback && (b["treatAsCloud"] === true || isProxyPortUrl(baseUrl));
           const cloud = !loopback || treatAsCloud;
           let billing: "subscription" | "paid" | undefined;
           if (cloud) {
@@ -467,14 +508,14 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
           const ids = new Set(catalog.entries().filter((e) => e.origin === "web" && e.sourceId === source.id).map((e) => e.preset.id));
           const bots = botsUsing(ids);
           if (bots.length > 0 && !force) throw inUse(bots, "This provider's models are");
+          const purged = purgePresets(ids); // first, as in presets/remove
           catalog.update((draft) => {
             draft.doc.presets = draft.doc.presets.filter((p) => p.sourceId !== source.id);
             draft.doc.sources = draft.doc.sources.filter((s) => s.id !== source.id);
             draft.keys.remove(source.id);
           });
-          for (const id of ids) chat.paid.dropPreset(id);
           lastRows.delete(source.id);
-          audit({ kind: "models_source_remove", user: me(c), detail: { sourceId: source.id, privacy: derivePrivacy(source), billing: source.billing, keyChanged: source.keyRef !== undefined, bots: bots.length, force } });
+          audit({ kind: "models_source_remove", user: me(c), detail: { sourceId: source.id, privacy: derivePrivacy(source), billing: source.billing, keyChanged: source.keyRef !== undefined, bots: bots.length, force, capsCleared: purged.caps, botsChanged: purged.bots, needsSetup: purged.needsSetup } });
           return { status: 200, body: { ok: true } };
         }),
     },

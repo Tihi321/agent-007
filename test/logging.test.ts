@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { test } from "node:test";
 import { auditFileName, createAuditLog, missingAuditFields, sha256Hex } from "../src/logging/audit.js";
 import { createLogger, logFileName, pruneLogs } from "../src/logging/logger.js";
-import { createRedactor, errorFields, redactDeep } from "../src/logging/redact.js";
+import { createGrowingRedactor, createRedactor, errorFields, redactDeep } from "../src/logging/redact.js";
 import type { AuditEvent } from "../src/contracts.js";
 
 const TG = "123456789:AAH-secret_telegram-token";
@@ -28,6 +28,10 @@ test("redaction covers all three secrets and the bot URL pattern", () => {
   assert.equal(createRedactor(["a.b*c(d)"])("see a.b*c(d) and aXb"), "see [REDACTED] and aXb");
   // empty or tiny secrets never wipe the text
   assert.equal(createRedactor(["", "a"])("abc"), "abc");
+  // a growing redactor also hides a key it learns later (custom provider keys in the web gateway)
+  const grow = createGrowingRedactor([LM, undefined]);
+  grow.add("sk-late-key");
+  assert.equal(grow(`${LM} sk-late-key`), "[REDACTED] [REDACTED]");
 });
 
 test("redactDeep and errorFields redact nested strings", () => {

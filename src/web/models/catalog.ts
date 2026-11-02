@@ -37,7 +37,7 @@ import type { WebAudit } from "../audit.js";
 import type { ModelEndpoint } from "../chat/openaiEngine.js";
 import type { SecretBox } from "../crypto.js";
 import { webPaths } from "../paths.js";
-import { checkUrl } from "../runtime/ssrf.js";
+import { checkUrl, isBlockedLoopbackPort } from "../runtime/ssrf.js";
 import type { Resolver } from "../runtime/ssrf.js";
 import { ModelsStore, emptyKeys, emptyModels } from "./store.js";
 import type { KeysFile, ModelsFile, StoredSource } from "./store.js";
@@ -97,6 +97,8 @@ export interface PresetCatalogOptions {
   resolver?: Resolver;
   /** Default 10 000 ms; 0 = no timer (tests). */
   intervalMs?: number;
+  /** Gets every custom provider key the catalogue sees in plain text (saved, unsealed, and all stored ones at start), for the log redactor. */
+  onSecret?: (plain: string) => void;
 }
 
 const defaultResolver: Resolver = async (host) => (await lookup(host, { all: true })).map((a) => a.address);
@@ -307,14 +309,19 @@ export function createPresetCatalog(o: PresetCatalogOptions): PresetCatalog {
         const sealedMap = store.readKeys()?.keys;
         const sealed = sealedMap !== undefined && Object.hasOwn(sealedMap, source.id) ? sealedMap[source.id] : undefined;
         if (sealed === undefined) return undefined;
+        let plain: string;
         try {
-          return o.box.open(sealed, `webkey:${source.id}`);
+          plain = o.box.open(sealed, `webkey:${source.id}`);
         } catch {
           return undefined;
         }
+        o.onSecret?.(plain);
+        return plain;
       }
     }
   };
+  // Boot: the custom keys saved earlier go to the log redactor now, not only when a chat first unseals them.
+  if (o.onSecret) for (const s of sources) if (s.kind === "custom") keyFor(s);
 
   function customEndpoint(e: CatalogEntry): ModelEndpoint | undefined {
     const p = e.preset;
@@ -326,6 +333,8 @@ export function createPresetCatalog(o: PresetCatalogOptions): PresetCatalog {
       if (apiKey === undefined) return undefined; // a keyed source without a usable key is not served (no key-less call to a paid host)
     }
     const baseUrl = p.baseUrl;
+    // A loopback source on one of agent-007's own service ports (saved before that was refused at add time) is not served.
+    if (isLiteralLoopbackUrl(baseUrl) && isBlockedLoopbackPort(baseUrl)) return undefined;
     const ep: ModelEndpoint = { baseUrl, apiKey, modelId: p.modelId, maxTokens: p.maxTokens, viaProxy: false, ...(isPaidPreset(p) ? { paid: true } : {}), label: p.label };
     // I60: a source on a host that is not a literal loopback one is checked before every request (https, no private address, own host only).
     // A loopback source marked "treat as cloud" is cloud for privacy but is the owner's own machine, so it has no SSRF check.
@@ -370,6 +379,7 @@ export function createPresetCatalog(o: PresetCatalogOptions): PresetCatalog {
         doc: base,
         keys: {
           set(sourceId, plain) {
+            o.onSecret?.(plain);
             keys[sourceId] = o.box.seal(plain, `webkey:${sourceId}`);
             const s = draft.doc.sources.find((x) => x.id === sourceId);
             if (s) s.hasKey = true;

@@ -345,10 +345,14 @@ export async function renderModels(ctx) {
     const egress = h("p", { class: "banner banner-warn" });
     const err = h("p", { class: "banner banner-error", role: "alert" });
     const isLoopback = () => LOOPBACK.has(hostOf(url.value.trim()));
-    const isCloud = () => !!url.value.trim() && (!isLoopback() || asCloud.checked);
+    const isProxyPort = () => { try { return new URL(url.value.trim()).port === "8787"; } catch { return false; } }; // the ACP proxy relays to vendors: always cloud
+    const forcedCloud = () => isLoopback() && isProxyPort();
+    const isCloud = () => !!url.value.trim() && (!isLoopback() || asCloud.checked || forcedCloud());
     function sync() {
       const cloud = isCloud();
       asCloudBox.hidden = !(url.value.trim() && isLoopback());
+      if (forcedCloud()) asCloud.checked = true;
+      asCloud.disabled = forcedCloud();
       billingBox.hidden = !cloud;
       egress.hidden = !cloud;
       err.hidden = true;
@@ -370,7 +374,7 @@ export async function renderModels(ctx) {
         const body = { label: name.value.trim(), baseUrl: url.value.trim() };
         if (apiKey) body.apiKey = apiKey;
         if (cloud) body.billing = billing;
-        if (isLoopback() && asCloud.checked) body.treatAsCloud = true;
+        if (isLoopback() && (asCloud.checked || forcedCloud())) body.treatAsCloud = true;
         const r = await write("/api/admin/models/sources/add", body);
         if (!r.ok) {
           err.textContent = `${r.data.message || "Could not add the provider."} Type the key again if you use one.`;

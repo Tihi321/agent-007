@@ -6,8 +6,9 @@ import { clear, field, h, icon } from "./dom.js";
 // The ids are stored on bots and never change; the labels name the look (shape and colour, WR5/D7).
 const AVATAR_LABEL = { robot: "Indigo square", fox: "Orange droplet", owl: "Violet circle", cat: "Pink triangle", planet: "Sky circle", leaf: "Green blob", bolt: "Red pill", book: "Teal square" };
 
+/** A bot's avatar. Decorative: it always sits next to the bot's name, so screen readers skip it (only the picker names the looks). */
 export function avatarEl(name, size = "md") {
-  return h("span", { class: `avatar av-${size} av-${name} avatar-${name}`, role: "img", "aria-label": AVATAR_LABEL[name] || "Avatar" });
+  return h("span", { class: `avatar av-${size} av-${name} avatar-${name}`, "aria-hidden": "true" });
 }
 
 export function badgeEl(bot) {

@@ -13,7 +13,7 @@ import { newUserId, parseRuntimeBotId, runtimeBotId } from "../../src/web/ids.js
 import { userPaths } from "../../src/web/paths.js";
 import { buildUserToolbox } from "../../src/web/runtime/tools.js";
 import { SchedulerAbortedError, SchedulerBusyError, TurnScheduler } from "../../src/web/runtime/scheduler.js";
-import { checkUrl, isBlockedAddress } from "../../src/web/runtime/ssrf.js";
+import { checkUrl, isBlockedAddress, isBlockedLoopbackPort } from "../../src/web/runtime/ssrf.js";
 import { UserBotError, UserBotRegistry, UserBotStore, toRuntimeBot, validateUserBot } from "../../src/web/runtime/userBots.js";
 import { UserFs, UserFsError, safeSegments } from "../../src/web/runtime/userFs.js";
 import { defaultCaps } from "../../src/web/schemas.js";
@@ -223,7 +223,7 @@ test("cross-user isolation: user B can reach nothing of user A by any path, tool
 });
 
 test("SSRF guard: private, loopback, link-local, CGNAT and tailnet addresses, numeric tricks, the model and gateway ports, DNS answers with one bad address", async () => {
-  for (const ip of ["127.0.0.1", "127.1.2.3", "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "100.64.0.1", "100.100.100.100", "100.127.255.255", "0.0.0.0", "224.0.0.1", "255.255.255.255", "::1", "::", "fe80::1", "fd7a:115c:a1e0::1", "fc00::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:10.0.0.1", "ff02::1"]) assert.equal(isBlockedAddress(ip), true, ip);
+  for (const ip of ["127.0.0.1", "127.1.2.3", "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "100.64.0.1", "100.100.100.100", "100.127.255.255", "0.0.0.0", "224.0.0.1", "255.255.255.255", "::1", "::", "fe80::1", "fd7a:115c:a1e0::1", "fc00::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:10.0.0.1", "ff02::1", "::7f00:1", "fec0::1"]) assert.equal(isBlockedAddress(ip), true, ip);
   for (const ip of ["8.8.8.8", "1.1.1.1", "93.184.216.34", "172.32.0.1", "100.63.255.255", "100.128.0.1", "2606:4700:4700::1111"]) assert.equal(isBlockedAddress(ip), false, ip);
   const dns = (map: Record<string, string[]>) => async (h: string) => map[h] ?? [];
   const allow = ["example.com", "*.docs.example.org"];
@@ -247,6 +247,8 @@ test("SSRF guard: private, loopback, link-local, CGNAT and tailnet addresses, nu
   await no("http://pc.tail1234.ts.net/", {}, ["pc.tail1234.ts.net"]);
   await no("http://printer.local/", {}, ["printer.local"]);
   await no("https://example.com:8787/", { "example.com": ["93.184.216.34"] });
+  // a custom provider on this PC: the model servers are allowed, agent-007's own services are not
+  assert.deepEqual(["http://127.0.0.1:1234/v1", "http://127.0.0.1:8080/v1", "http://localhost:8787/v1", "http://127.0.0.1:47007", "http://[::1]:47009/v1"].map(isBlockedLoopbackPort), [false, false, false, true, true]);
   await no("https://example.com:47009/", { "example.com": ["93.184.216.34"] });
   assert.match(await no("https://evil.com/", { "evil.com": ["93.184.216.34"] }), /allowlist/);
   assert.match(await no("https://example.com/", { "example.com": ["93.184.216.34", "10.0.0.5"] }), /resolves to a private/, "rebinding: one bad address blocks");

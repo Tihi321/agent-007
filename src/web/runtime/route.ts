@@ -70,7 +70,8 @@ export function whyNot(id: string, ctx: TurnRouteContext): DropReason | undefine
 }
 
 export function resolveTurnRoute(cfg: Pick<UserBotConfig, "preset" | "cloudFallback" | "fallback" | "tools">, ctx: TurnRouteContext): ResolvedTurn {
-  const dropped: { preset: string; why: DropReason }[] = [];
+  // "" = the main model was removed by the owner and the bot needs setup: its fallbacks still answer, with the notice.
+  const dropped: { preset: string; why: DropReason }[] = cfg.preset === "" ? [{ preset: "", why: "missing" }] : [];
   const keep: string[] = [];
   for (const id of chainOf(cfg)) {
     const why = whyNot(id, ctx);

@@ -46,7 +46,7 @@ export function chatRoutes(svc: ChatService, presets: () => readonly PresetConfi
       tagline: b.tagline,
       avatar: b.avatar,
       preset: b.preset,
-      presetLabel: p?.label ?? b.preset,
+      presetLabel: b.preset === "" ? "Needs setup: pick a model" : (p?.label ?? b.preset),
       cloudFallback: b.cloudFallback ?? null,
       fallback: b.fallback ?? null,
       paid: paidOf(userId, id, b),

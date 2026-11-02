@@ -222,6 +222,26 @@ export class UserBotStore {
     return { bot, warnings: v.warnings };
   }
 
+  /**
+   * The owner removed these presets: they leave every route field of this user's bots, so a preset added again later under the same id is
+   * never picked up silently. A bot whose main model goes is NOT moved to another model: its `preset` becomes "" (needs setup), its own
+   * fallbacks still answer with a notice, and with none left its turns are refused until the user picks a model. Returns the changed bots.
+   */
+  dropPresets(ids: ReadonlySet<string>): { botId: string; needsSetup: boolean }[] {
+    const out: { botId: string; needsSetup: boolean }[] = [];
+    for (const { id, bot } of this.list()) {
+      const hit = [bot.preset, bot.cloudFallback, bot.fallback].some((p) => p !== undefined && ids.has(p));
+      if (!hit) continue;
+      const next: UserBotConfig = { ...bot, preset: ids.has(bot.preset) ? "" : bot.preset, updatedAt: this.#now() };
+      if (next.cloudFallback !== undefined && ids.has(next.cloudFallback)) delete next.cloudFallback;
+      if (next.fallback !== undefined && ids.has(next.fallback)) delete next.fallback;
+      atomicWriteJson(this.#paths().bot(id).botFile, next);
+      this.#o.audit.write({ kind: "bot_edit", user: this.#o.userId, detail: { bot: id, preset: next.preset, why: "preset_removed" } });
+      out.push({ botId: id, needsSetup: next.preset === "" });
+    }
+    return out;
+  }
+
   delete(botId: string): void {
     if (!this.get(botId)) throw new UserBotError(["No such bot."], 404);
     rmSync(this.#paths().bot(botId).root, { recursive: true, force: true });

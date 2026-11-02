@@ -103,6 +103,15 @@ export function isLiteralLoopbackUrl(url: string): boolean {
   }
 }
 
+/** True for a URL on port 8787, the ACP proxy's port: it forwards to cloud vendors, so a loopback URL there is always cloud. */
+export function isProxyPortUrl(url: string): boolean {
+  try {
+    return new URL(url).port === "8787";
+  } catch {
+    return false;
+  }
+}
+
 /** The privacy class a source gets: built-ins are fixed; a custom source is local only on a literal loopback host and not `treatAsCloud`. */
 export function derivePrivacy(source: Pick<ModelSource, "kind" | "baseUrl" | "treatAsCloud">): Privacy {
   switch (source.kind) {
@@ -112,7 +121,7 @@ export function derivePrivacy(source: Pick<ModelSource, "kind" | "baseUrl" | "tr
     case "strata":
       return "local";
     default:
-      return isLiteralLoopbackUrl(source.baseUrl) && source.treatAsCloud !== true ? "local" : "cloud";
+      return isLiteralLoopbackUrl(source.baseUrl) && source.treatAsCloud !== true && !isProxyPortUrl(source.baseUrl) ? "local" : "cloud";
   }
 }
 
