@@ -224,7 +224,9 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     await byTag(body, "form")[0]!.fire("submit");
     await until(() => /Your bots/.test(body.textContent) && /Helper/.test(body.textContent));
     assert.match(body.textContent, /Claude Sonnet \(cloud\)/, "the cloud badge on the card");
-    assert.ok(all(body).some((e) => e.getAttribute("role") === "img" && e.getAttribute("aria-label") === "Violet circle"), "the picked look is saved");
+    const looks = all(body).filter((e) => /\bavatar-/.test(e.getAttribute("class") ?? ""));
+    assert.ok(looks.some((e) => /\bavatar-owl\b/.test(e.getAttribute("class") ?? "")), "the picked look is saved");
+    assert.ok(looks.every((e) => e.getAttribute("aria-hidden") === "true" && !e.getAttribute("role")), "avatars outside the picker are decorative");
     checkAccessibility(body, "bots");
     // chat
     await buttonByText(body, "Chat").fire("click");
