@@ -1,6 +1,6 @@
 # Web UI redesign: Grok-Bot-style layout, MVP-ready
 
-Status: APPROVED 2026-11-02 with the answers in §11 (WQ1 to WQ8 all answered: defaults accepted; WQ6 = live check on the redesigned UI). WR1 done; WR2 to WR8 not started. Repo `C:\projects\Personal\agent-007`, base `master` 5f0be1c. Proposed branch: `agent-007-web-ui-redesign` (WQ8).
+Status: APPROVED 2026-11-02 with the answers in §11 (WQ1 to WQ8 all answered: defaults accepted; WQ6 = live check on the redesigned UI). WR1 and WR2 done; WR3 to WR8 not started. Repo `C:\projects\Personal\agent-007`, base `master` 5f0be1c. Proposed branch: `agent-007-web-ui-redesign` (WQ8).
 Research: `research.md` (this folder) has the sources and the design spec read off the Grok Bot screenshots.
 Parent plans:
 - `.claude/tickets/agent-007-milestone2/plan.md`: S35 UI, I47 to I58, §7 Web UI, §15 Live order.
@@ -275,6 +275,8 @@ Order: WR1, then WR2 and WR6 in parallel, then WR3, WR4 and WR5 in parallel, the
 - **Done:** the static test passes.
 
 ### WR2 App shell, router, sidebar, user menu
+- **Status: DONE.** Evidence: `yarn build` ok; full run 1597 tests, 1596 pass, 0 fail, 1 skipped (new: the WA6 `shortTime` table test; the journey test now asserts the sidebar row text has the name, "Hello **world**" and a time, and exactly one `aria-current=page`). UI total 114.8 KB, so the budget stays at 130 KB (WR8 still raises it). Not run in a browser: all CSS and layout are UNTESTED (WU checks).
+- **Deviations:** (1) the chat view's own `aside.sidebar` was renamed `chat-side` (class clash with the shell sidebar); chat.js calls `ctx.refreshBots()` when a stream ends and bots.js after save and delete. (2) The sidebar row is an `<a href>` to the bot's newest thread (by `updatedAt`, not "first in the list", because pinned threads sort first). (3) The user-menu panel is hidden, not removed, so the Account/Admin/Models links and the Sign out button always exist in the DOM (the journey test finds them unchanged). (4) Added `env.onDocument(type, fn)` (browser entry: `document.addEventListener`) for Ctrl/Cmd+K and click-outside; tests omit it. (5) Offline banner: `api.call/get` are wrapped in app.js; auto-retry probes `/api/me` at 3 s, 5 s, then every 10 s, and the manual Retry also re-runs the route. (6) Added a mobile-only "Bots" back link above page-type screens; on mobile the user menu moves to the top of the home list. (7) `ctx.logout()` and `ctx.user` added.
 - **Inputs:** §3.2, §3.3 (rows, search, user menu, favourites, offline banner), §4.
 - **Outputs:**
   - `app.js` builds `div.shell` with `aside.sidebar` (aria-label "Bots"), `main#main` and `aside.details` slots;

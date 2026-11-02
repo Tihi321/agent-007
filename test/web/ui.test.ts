@@ -66,6 +66,19 @@ test("safe Markdown: HTML stays text, javascript: links are not links, images ne
   assert.ok(Date.now() - t0 < 2000);
 });
 
+test("shortTime: today, yesterday, the past week, this year, older", async () => {
+  const { shortTime } = await load("time.js");
+  const now = new Date(2026, 10, 2, 21, 0).getTime();
+  const rows: [number, string][] = [
+    [new Date(2026, 10, 2, 19, 34).getTime(), "7:34 PM"],
+    [new Date(2026, 10, 1, 23, 59).getTime(), "Yesterday"],
+    [new Date(2026, 9, 27, 12, 0).getTime(), "Tuesday"],
+    [new Date(2026, 7, 23, 12, 0).getTime(), "Aug 23"],
+    [new Date(2025, 7, 23, 12, 0).getTime(), "Aug 23, 2025"],
+  ];
+  for (const [ms, want] of rows) assert.equal(shortTime(ms, now), want);
+});
+
 test("dom.js refuses inline style, string event handlers and unsafe URLs", async () => {
   (globalThis as any).document = fakeDocument;
   const { h, safeUrl } = await load("dom.js");
@@ -209,6 +222,12 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     assert.match(body.textContent, /Say hello/);
     assert.ok(all(body).some((e) => e.tagName === "progress"), "usage meter");
     await until(() => /1\/100000 messages/.test(body.textContent));
+    // the sidebar row of the bot shows its last message and a time (WA4)
+    await until(() => {
+      const row = all(body).find((e) => e.tagName === "a" && e.className.includes("botrow"));
+      return !!row && /Helper/.test(row.textContent) && /Hello \*\*world\*\*/.test(row.textContent) && /\d:\d\d [AP]M/.test(row.textContent);
+    });
+    assert.equal(all(body).filter((e) => e.getAttribute("aria-current") === "page").length, 1, "the open bot is the current row");
     // "reload": a fresh app instance on the same gateway session finds the history
     const second = envFor(t.port);
     second.env.fetch = env.fetch; // same browser (cookie jar)

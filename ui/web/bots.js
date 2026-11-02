@@ -105,6 +105,7 @@ export async function renderBotEditor(ctx, botId) {
           const issues = r.data.issues || [r.data.message || "Could not save."];
           return clear(e, h("div", { class: "banner banner-error" }, h("ul", {}, issues.map((i) => h("li", {}, i)))));
         }
+        ctx.refreshBots();
         ctx.go("#/bots");
       },
     },
@@ -134,7 +135,10 @@ export async function renderBotEditor(ctx, botId) {
           onclick: async () => {
             if (!ctx.confirm(`Delete ${bot.name} and its chats?`)) return;
             const r = await ctx.api.call("/api/bots/delete", { id: botId });
-            if (r.ok) ctx.go("#/bots");
+            if (r.ok) {
+              ctx.refreshBots();
+              ctx.go("#/bots");
+            }
           },
         },
         "Delete this bot",

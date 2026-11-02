@@ -128,7 +128,7 @@ export async function renderChat(ctx, botId, threadId) {
     last = 0;
     setRunning(false);
     if (r.ok) await showThread();
-    await Promise.all([usage(), loadThreads()]);
+    await Promise.all([usage(), loadThreads(), ctx.refreshBots()]);
   };
   const send = async () => {
     const text = input.value.trim();
@@ -166,7 +166,7 @@ export async function renderChat(ctx, botId, threadId) {
   const root = h(
     "section",
     { class: "chat", "aria-labelledby": "chat-title" },
-    h("aside", { class: "sidebar", "aria-label": "Chats" }, newBtn, search, list),
+    h("aside", { class: "chat-side", "aria-label": "Chats" }, newBtn, search, list),
     h(
       "div",
       { class: "pane" },
