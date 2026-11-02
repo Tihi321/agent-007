@@ -146,6 +146,45 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
     return n;
   }
 
+  /**
+   * After a remove: the ids leave every user's and every open invite's caps and every bot's route fields, so a preset added again later
+   * under the same id (ids are deterministic) is not silently granted or used again. A bot that loses its main model needs setup
+   * (UserBotStore.dropPresets). Returns counts for the audit line.
+   */
+  function purgePresets(ids: ReadonlySet<string>): { caps: number; bots: number; needsSetup: number } {
+    let caps = 0;
+    if (Object.values(stack.users.read().users).some((u) => u.caps.presets.some((p) => ids.has(p)))) {
+      stack.users.update((d) => {
+        for (const u of Object.values(d.users)) {
+          const keep = u.caps.presets.filter((p) => !ids.has(p));
+          if (keep.length !== u.caps.presets.length) {
+            u.caps.presets = keep;
+            caps++;
+          }
+        }
+      });
+    }
+    if (stack.invites.read().invites.some((inv) => inv.caps.presets.some((p) => ids.has(p)))) {
+      stack.invites.update((d) => {
+        for (const inv of d.invites) inv.caps.presets = inv.caps.presets.filter((p) => !ids.has(p));
+      });
+    }
+    let bots = 0;
+    let needsSetup = 0;
+    for (const userId of Object.keys(stack.users.read().users)) {
+      let changed: { botId: string; needsSetup: boolean }[];
+      try {
+        changed = chat.bots(userId).dropPresets(ids);
+      } catch {
+        continue; // an unreadable bot folder: its bots resolve the removed id as "missing" at every turn, as before
+      }
+      bots += changed.length;
+      needsSetup += changed.filter((b) => b.needsSetup).length;
+    }
+    for (const id of ids) chat.paid.dropPreset(id);
+    return { caps, bots, needsSetup };
+  }
+
   const inUse = (bots: { user: string; bot: string }[], what: string): ModelsError =>
     new ModelsError(409, "in_use", `${what} is used by ${bots.length} ${bots.length === 1 ? "bot" : "bots"}. Remove it anyway to make their chats fall back or be refused.`, { bots: bots.slice(0, 100) });
 
@@ -373,8 +412,8 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
           catalog.update((draft) => {
             draft.doc.presets = draft.doc.presets.filter((x) => x.id !== presetId);
           });
-          chat.paid.dropPreset(presetId);
-          audit({ kind: "models_remove", user: me(c), detail: { presetId, force, bots: bots.length } });
+          const purged = purgePresets(new Set([presetId]));
+          audit({ kind: "models_remove", user: me(c), detail: { presetId, force, bots: bots.length, capsCleared: purged.caps, botsChanged: purged.bots, needsSetup: purged.needsSetup } });
           return { status: 200, body: { ok: true } };
         }),
     },
@@ -473,9 +512,9 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
             draft.doc.sources = draft.doc.sources.filter((s) => s.id !== source.id);
             draft.keys.remove(source.id);
           });
-          for (const id of ids) chat.paid.dropPreset(id);
+          const purged = purgePresets(ids);
           lastRows.delete(source.id);
-          audit({ kind: "models_source_remove", user: me(c), detail: { sourceId: source.id, privacy: derivePrivacy(source), billing: source.billing, keyChanged: source.keyRef !== undefined, bots: bots.length, force } });
+          audit({ kind: "models_source_remove", user: me(c), detail: { sourceId: source.id, privacy: derivePrivacy(source), billing: source.billing, keyChanged: source.keyRef !== undefined, bots: bots.length, force, capsCleared: purged.caps, botsChanged: purged.bots, needsSetup: purged.needsSetup } });
           return { status: 200, body: { ok: true } };
         }),
     },

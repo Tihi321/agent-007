@@ -453,6 +453,7 @@ test("remove in use", async () => {
     const alice = await t.addUser("alice@example.com", { presets: ["strata", "codex-gpt-5"] });
     const paidBot = (await t.post(alice, "/api/bots/create", { ...BOT, name: "Paid", preset: "codex-gpt-5", fallback: "strata", tools: ["tool_search"] })).json().bot.id;
     const solo = (await t.post(alice, "/api/bots/create", { ...BOT, name: "Solo", preset: "codex-gpt-5", tools: ["tool_search"] })).json().bot.id;
+    const cloudy = (await t.post(alice, "/api/bots/create", { ...BOT, name: "Cloudy", preset: "strata", cloudFallback: "codex-gpt-5", tools: ["tool_search"] })).json().bot.id;
     const grant = await t.post(t.owner, "/api/admin/paid/set", { userId: alice.userId, botId: paidBot, preset: "codex-gpt-5", enabled: true, perDay: 100, perMonth: 1000 });
     assert.equal(grant.status, 200, grant.text);
     assert.equal((await chat(t, alice, paidBot)).status, 200);
@@ -462,21 +463,31 @@ test("remove in use", async () => {
     assert.equal((await call("presets/remove", { presetId: "strata" })).status, 400);
     const refused = await call("presets/remove", { presetId: "codex-gpt-5" });
     assert.deepEqual([refused.status, refused.json().error], [409, "in_use"]);
-    assert.deepEqual(refused.json().bots.map((b: { user: string; bot: string }) => `${b.user}/${b.bot}`).sort(), ["alice@example.com/Paid", "alice@example.com/Solo"]);
+    assert.deepEqual(refused.json().bots.map((b: { user: string; bot: string }) => `${b.user}/${b.bot}`).sort(), ["alice@example.com/Cloudy", "alice@example.com/Paid", "alice@example.com/Solo"]);
     assert.ok(idsOf(await call("list")).includes("codex-gpt-5"), "still there");
     assert.ok(t.app.chat.paid.grant(alice.userId, paidBot, "codex-gpt-5"));
 
-    // force removes it and its paid grants; the next turn falls back or is refused
+    // force removes it, its paid grants, its id in the user's caps and in every bot's route; the next turn falls back or is refused
     assert.equal((await call("presets/remove", { presetId: "codex-gpt-5", force: true })).status, 200);
     assert.ok(!idsOf(await call("list")).includes("codex-gpt-5"));
     assert.equal(t.app.chat.paid.grant(alice.userId, paidBot, "codex-gpt-5"), undefined, "its paid grants went with it");
     assert.ok(!(await t.post(t.owner, "/api/bots/options")).json().presets.some((p: { id: string }) => p.id === "codex-gpt-5"));
+    assert.deepEqual(t.app.stack.users.read().users[alice.userId]!.caps.presets, ["strata"], "gone from the user's caps");
+    const route = async (id: string) => {
+      const b = (await t.post(alice, "/api/bots/get", { id })).json().bot;
+      return [b.preset, b.cloudFallback, b.fallback, b.presetLabel];
+    };
+    assert.deepEqual(await route(paidBot), ["", null, "strata", "Needs setup: pick a model"], "a lost main model is not replaced: the bot needs setup");
+    assert.deepEqual(await route(cloudy), ["strata", null, null, "Strata"]);
     assert.equal((await chat(t, alice, paidBot)).status, 200);
     assert.equal(engine.calls.at(-1)!.bot.route.primary, "strata", "falls back to the local link");
-    assert.ok(t.audit.events.some((e) => e.kind === "route_changed" && e.detail?.["preset"] === "codex-gpt-5" && e.detail?.["why"] === "missing"));
+    assert.ok(t.audit.events.some((e) => e.kind === "route_changed" && e.detail?.["preset"] === "" && e.detail?.["why"] === "missing"));
     const gone = await chat(t, alice, solo);
     assert.equal(gone.status, 403);
     assert.match(gone.json().message, /no longer set up/);
+    // the same id added again (ids are deterministic) is neither granted back nor used by the old bots
+    assert.equal((await call("presets/add", { sourceId: "acp-proxy", models: [{ modelId: "codex/gpt-5" }] })).json().added[0].presetId, "codex-gpt-5");
+    assert.equal((await chat(t, alice, solo)).status, 403);
   } finally {
     await t.close();
   }
