@@ -34,8 +34,32 @@ export function isBlockedV4(ip: string): boolean {
   );
 }
 
+/** The 8 groups of an IPv6 address (with "::" expanded and a trailing dotted quad folded in); undefined when it does not parse. */
+function v6Groups(l: string): number[] | undefined {
+  let s = l.replace(/%.*$/, "");
+  const dotted = /^(.*:)(\d+\.\d+\.\d+\.\d+)$/.exec(s);
+  if (dotted) {
+    const p = v4Parts(dotted[2] as string);
+    if (!p) return undefined;
+    const [a, b, c, d] = p as [number, number, number, number];
+    s = `${dotted[1]}${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}`;
+  }
+  const halves = s.split("::");
+  if (halves.length > 2) return undefined;
+  const groups = (x: string): string[] => (x === "" ? [] : x.split(":"));
+  const head = groups(halves[0] as string);
+  const tail = halves.length === 2 ? groups(halves[1] as string) : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  if (fill < 0 || head.length + fill + tail.length !== 8 || ![...head, ...tail].every((g) => /^[0-9a-f]{1,4}$/.test(g))) return undefined;
+  return [...head.map((g) => parseInt(g, 16)), ...Array<number>(fill).fill(0), ...tail.map((g) => parseInt(g, 16))];
+}
+
 export function isBlockedV6(ip: string): boolean {
   const l = ip.toLowerCase().replace(/^\[|\]$/g, "");
+  const g = v6Groups(l);
+  if (!g) return true; // fail closed on anything that does not parse
+  if (g.slice(0, 6).every((x) => x === 0)) return true; // ::/96: unspecified, loopback and the deprecated IPv4-compatible ::a.b.c.d
+  if (((g[0] as number) & 0xffc0) === 0xfec0) return true; // fec0::/10, the deprecated site-local range
   const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(l);
   if (mapped) return isBlockedV4(mapped[1] as string);
   const hexMapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(l);

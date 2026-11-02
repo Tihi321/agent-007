@@ -223,7 +223,7 @@ test("cross-user isolation: user B can reach nothing of user A by any path, tool
 });
 
 test("SSRF guard: private, loopback, link-local, CGNAT and tailnet addresses, numeric tricks, the model and gateway ports, DNS answers with one bad address", async () => {
-  for (const ip of ["127.0.0.1", "127.1.2.3", "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "100.64.0.1", "100.100.100.100", "100.127.255.255", "0.0.0.0", "224.0.0.1", "255.255.255.255", "::1", "::", "fe80::1", "fd7a:115c:a1e0::1", "fc00::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:10.0.0.1", "ff02::1"]) assert.equal(isBlockedAddress(ip), true, ip);
+  for (const ip of ["127.0.0.1", "127.1.2.3", "10.0.0.1", "172.16.0.1", "172.31.255.255", "192.168.1.1", "169.254.169.254", "100.64.0.1", "100.100.100.100", "100.127.255.255", "0.0.0.0", "224.0.0.1", "255.255.255.255", "::1", "::", "fe80::1", "fd7a:115c:a1e0::1", "fc00::1", "::ffff:127.0.0.1", "::ffff:7f00:1", "::ffff:10.0.0.1", "ff02::1", "::7f00:1", "fec0::1"]) assert.equal(isBlockedAddress(ip), true, ip);
   for (const ip of ["8.8.8.8", "1.1.1.1", "93.184.216.34", "172.32.0.1", "100.63.255.255", "100.128.0.1", "2606:4700:4700::1111"]) assert.equal(isBlockedAddress(ip), false, ip);
   const dns = (map: Record<string, string[]>) => async (h: string) => map[h] ?? [];
   const allow = ["example.com", "*.docs.example.org"];
