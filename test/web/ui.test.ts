@@ -279,6 +279,49 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
   }
 });
 
+test("WA5: a dropped stream resumes from the last event id with no duplicated or lost text", async () => {
+  (globalThis as any).document = fakeDocument;
+  const { renderChat } = await load("chat.js");
+  const events = [
+    { id: 1, type: "delta", data: { text: "Hello " } },
+    { id: 2, type: "delta", data: { text: "big " } },
+    { id: 3, type: "delta", data: { text: "**world**" } },
+  ];
+  const lasts: number[] = [];
+  let done = false;
+  let root: FElement | undefined;
+  const bot = { id: "b", name: "Bee", avatar: "robot", presetLabel: "strata", cloud: false, starters: [] };
+  const finalMessages = [{ role: "user", text: "hi", at: 1 }, { role: "assistant", text: "Hello big **world**", at: 2 }];
+  const api = {
+    async call(path: string) {
+      if (path === "/api/bots/get") return { ok: true, status: 200, data: { bot } };
+      if (path === "/api/chat/thread/get") return { ok: true, status: 200, data: { thread: { messages: done ? finalMessages : [finalMessages[0]] }, running: !done } };
+      if (path === "/api/chat/usage") return { ok: true, status: 200, data: { maxTokensPerDay: 10, tokensToday: 1, chatsToday: 1, maxChatsPerDay: 5, paid: [] } };
+      return { ok: true, status: 200, data: { threads: [] } };
+    },
+    async stream(_b: string, _t: string, o: { last: number; onEvent: (e: unknown) => void }) {
+      lasts.push(o.last);
+      if (lasts.length === 1) {
+        events.slice(0, 2).forEach((e) => o.onEvent(e));
+        return { ok: false }; // the connection drops mid-answer
+      }
+      await until(() => root !== undefined);
+      events.filter((e) => e.id > o.last).forEach((e) => o.onEvent(e));
+      await new Promise((r) => setTimeout(r, 150)); // let the 100 ms live render run
+      const liveEl = all(root!).find((e) => e.className.includes("live"))!;
+      assert.equal(liveEl.textContent, "Hello big world", "the live bubble has every delta once");
+      done = true;
+      return { ok: true };
+    },
+  };
+  const ctx = { api, resumeDelays: [1, 1, 1], refreshBots: async () => {}, openDetails() {}, closeDetails() {}, detailsOpen: () => false, go() {}, replace() {}, confirm: () => true, prompt: () => "", download() {} };
+  root = (await renderChat(ctx, "b", "t1")) as FElement;
+  const finalBubbles = () => all(root!).filter((e) => e.tagName === "article" && e.className.startsWith("msg msg-assistant"));
+  await until(() => finalBubbles().length === 1);
+  assert.deepEqual(lasts, [0, 2], "the second call carried the last event id");
+  assert.equal(finalBubbles()[0]!.textContent.replace(/Regenerate/g, ""), "Hello big world");
+});
+
 test("the gateway serves the built UI: index with the strict headers, scripts and styles with the right types, nothing outside the map", async () => {
   const t = await makeApp({ mode: "local" });
   const { startWebApp } = await import("../../src/web/app.js");

@@ -1,6 +1,6 @@
 # Web UI redesign: Grok-Bot-style layout, MVP-ready
 
-Status: APPROVED 2026-11-02 with the answers in §11 (WQ1 to WQ8 all answered: defaults accepted; WQ6 = live check on the redesigned UI). WR1 and WR2 done; WR3 to WR8 not started. Repo `C:\projects\Personal\agent-007`, base `master` 5f0be1c. Proposed branch: `agent-007-web-ui-redesign` (WQ8).
+Status: APPROVED 2026-11-02 with the answers in §11 (WQ1 to WQ8 all answered: defaults accepted; WQ6 = live check on the redesigned UI). WR1, WR2, WR3, WR4 and WR6 done; WR5, WR7 and WR8 not started. Repo `C:\projects\Personal\agent-007`, base `master` 5f0be1c. Proposed branch: `agent-007-web-ui-redesign` (WQ8).
 Research: `research.md` (this folder) has the sources and the design spec read off the Grok Bot screenshots.
 Parent plans:
 - `.claude/tickets/agent-007-milestone2/plan.md`: S35 UI, I47 to I58, §7 Web UI, §15 Live order.
@@ -296,6 +296,8 @@ Order: WR1, then WR2 and WR6 in parallel, then WR3, WR4 and WR5 in parallel, the
   - The sidebar shows the bot with its last preview and time after a chat.
 
 ### WR3 Chat view
+- **Status: DONE.** Evidence: `yarn build` ok; full run 1598 tests, 1597 pass, 0 fail, 1 skipped (new: WA5 resume test; the journey test passes unchanged). UI total 127.8 KB, so the 130 KB budget stays (WR8 still raises it). UNTESTED (no browser): all CSS and layout, typing dots, the 100 ms live render timing in a real browser, Copy click, the approval card, Escape to stop, textarea growth, and the details toggle at the three breakpoints.
+- **Deviations:** (1) Committed after WR4 (WR4 first) because chat.js imports details.js. (2) Escape while running stops at once, with no confirm on mobile. (3) Copy is created only when `navigator.clipboard.writeText` exists (same rule as the code blocks). (4) After a failed stream the view asks `/api/chat/thread/get`: if the run is over it shows the result, else it retries after 1 s, 2 s, 4 s (`ctx.resumeDelays` overrides the delays, for the test). (5) Regenerate also re-reads the thread, so the old answer is not shown beside the new one. (6) Details open by default only at 1100 px and wider (and when `matchMedia` is absent, as in tests). (7) New-chat empty state reads "Start a chat with <name>." plus tagline and starter chips. (8) Old chat CSS rules were removed from app.css and the new ones added there (no chat.css; app.css is 18 KB).
 - **Inputs:** §3.3 (header, messages, streaming, tool chips, approval card, composer, empty, errors), §3.4 (streaming render), §4 (stream resume).
 - **Outputs:** `chat.js` rebuilt. It uses `details.js` for the right pane (through `ctx.openDetails`).
 - **Contracts:**

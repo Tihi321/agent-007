@@ -1,201 +1,296 @@
-// Chat: thread list, messages, composer, approval cards, usage meter (S35). The stream is followed with fetch + Last-Event-ID so a reload or
-// a dropped connection resumes the same answer. Streaming text goes into one live region as plain text and is rendered as Markdown when
-// the answer is complete. Tool calls show as chips; an ask-first tool shows an approval card (Approve, Deny, Why).
-import { clear, h, when } from "./dom.js";
+// Chat (S35, WR3): header, message log, composer pill, approval cards. The thread list and the usage meter live in the details pane (details.js).
+// The stream is followed with fetch + Last-Event-ID, so a reload or a dropped connection resumes the same answer: on a failure while the thread is
+// still running the view waits 1 s, 2 s, 4 s and follows again from the last event id (the live text is kept, never rebuilt twice).
+// The live bubble shows typing dots until the first delta, then Markdown re-rendered from the full text at most every 100 ms (plain text past 20,000 chars).
+import { avatarEl, badgeEl } from "./bots.js";
+import { renderDetails } from "./details.js";
+import { clear, h, icon } from "./dom.js";
 import { renderMarkdown } from "./markdown.js";
+import { shortTime } from "./time.js";
 
-function chips(tools) {
-  return (tools || []).map((t) => h("span", { class: `chip chip-${t.status}` }, `${t.name}: ${t.status}`));
-}
+const GAP_MS = 30 * 60_000;
+const PAINT_MS = 100;
+const PLAIN_OVER = 20_000;
+const RESUME_MS = [1000, 2000, 4000];
+const canCopy = () => typeof navigator !== "undefined" && !!navigator && !!navigator.clipboard && typeof navigator.clipboard.writeText === "function";
 
-function messageEl(m) {
-  const body = m.role === "assistant" ? renderMarkdown(m.text || "") : h("p", { class: "plain" }, m.text);
-  return h(
-    "article",
-    { class: `msg msg-${m.role}`, "aria-label": m.role === "user" ? "You" : "Bot" },
-    h("div", { class: "msg-meta muted small" }, m.role === "user" ? "You" : "Bot", " · ", when(m.at)),
-    m.notice ? h("p", { class: "banner banner-warn small" }, m.notice) : null,
-    body,
-    chips(m.tools),
-    m.stopped ? h("p", { class: "muted small" }, "Stopped.") : null,
-    m.error ? h("p", { class: "banner banner-error small", role: "alert" }, m.error) : null,
-  );
+const toolRow = (tools) => (tools && tools.length > 0 ? h("div", { class: "toolrow" }, tools.map((t) => h("span", { class: `chip chip-${t.status}` }, `${t.name}: ${t.status}`))) : null);
+
+/** "7:34 PM" today, else "Yesterday 7:34 PM". */
+function sepLabel(ms) {
+  const clock = shortTime(ms, ms);
+  const day = shortTime(ms, Date.now());
+  return day === clock ? clock : `${day} ${clock}`;
 }
 
 export async function renderChat(ctx, botId, threadId) {
   const g = await ctx.api.call("/api/bots/get", { id: botId });
-  if (!g.ok) return h("p", { class: "banner banner-error", role: "alert" }, g.data.message || "No such bot.");
+  const here = `#/chat/${botId}${threadId ? `/${threadId}` : ""}`;
+  if (!g.ok) return h("div", { class: "banner banner-error", role: "alert" }, g.data.message || "No such bot.", h("button", { class: "btn btn-small", type: "button", onclick: () => ctx.go(here) }, "Retry"));
   const bot = g.data.bot;
+  const delays = ctx.resumeDelays || RESUME_MS;
   let thread = threadId || "";
   let last = 0;
+  let text = "";
   let abort = null;
-  const list = h("ul", { class: "threads", role: "list" });
-  const log = h("div", { class: "log", role: "log", "aria-live": "polite", "aria-relevant": "additions text", tabindex: "0" });
-  const live = h("div", { class: "msg msg-assistant live", hidden: true });
-  const liveText = h("p", { class: "plain" });
-  const liveTools = h("div", {});
-  const cards = h("div", { class: "cards-approval" });
-  live.append(liveText, liveTools);
-  const status = h("p", { class: "muted small", "aria-live": "polite" });
-  const meter = h("progress", { max: "1", value: "0", "aria-label": "Daily usage" });
-  const meterText = h("span", { class: "muted small" });
-  const input = h("textarea", { name: "message", "aria-label": "Message", rows: "2", maxlength: "8000", placeholder: "Write a message" });
-  const sendBtn = h("button", { class: "btn btn-primary", type: "submit" }, "Send");
-  const stopBtn = h("button", { class: "btn", type: "button", hidden: true }, "Stop");
-  const regenBtn = h("button", { class: "btn btn-small", type: "button" }, "Regenerate");
-  const search = h("input", { type: "search", "aria-label": "Search chats", placeholder: "Search chats" });
+  let running = false;
+  let following = false;
+  let disposed = false;
+  let paintTimer = null;
+  let lastPaint = 0;
+  let wake = null;
 
+  const typing = h("span", { class: "typing", "aria-hidden": "true" }, h("span"), h("span"), h("span"));
+  const liveBody = h("div", { class: "live-body" });
+  const liveTools = h("div", { class: "toolrow" });
+  const live = h("div", { class: "msg msg-assistant live", hidden: true, "aria-busy": "false" }, h("div", { class: "bubble" }, typing, liveBody), liveTools);
+  const cards = h("div", { class: "cards-approval" });
+  const log = h("div", { class: "log", role: "log", "aria-live": "polite", "aria-relevant": "additions text", tabindex: "0" });
+  const status = h("div", { class: "status muted small", "aria-live": "polite" });
+  const input = h("textarea", { name: "message", "aria-label": "Message", rows: "1", maxlength: "8000", placeholder: `Message ${bot.name}` });
+  const sendBtn = h("button", { class: "btn btn-primary btn-icon send", type: "submit", disabled: true }, icon("send", "Send"));
+  const stopBtn = h("button", { class: "btn btn-primary btn-icon send", type: "button", hidden: true }, icon("stop", "Stop"));
+
+  const setStatus = (msg, retry) => clear(status, msg ? h("span", {}, msg) : null, retry ? h("button", { class: "btn btn-small", type: "button", onclick: retry }, icon("retry"), "Retry") : null);
+  const grow = () => {
+    const rows = input.value.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 70)), 0);
+    input.setAttribute("rows", String(Math.min(8, Math.max(1, rows))));
+    sendBtn.disabled = input.value.trim() === "";
+  };
   const setRunning = (on) => {
-    sendBtn.disabled = on;
+    running = on;
+    sendBtn.hidden = on;
     stopBtn.hidden = !on;
-    regenBtn.disabled = on;
-    live.hidden = !on;
-    if (!on) {
-      clear(liveText);
-      clear(liveTools);
-    }
+    live.hidden = !on && text === "";
+    live.setAttribute("aria-busy", on ? "true" : "false");
   };
-  const usage = async () => {
-    const u = await ctx.api.call("/api/chat/usage", {});
-    if (!u.ok) return;
-    meter.setAttribute("max", String(u.data.maxTokensPerDay));
-    meter.setAttribute("value", String(Math.min(u.data.tokensToday, u.data.maxTokensPerDay)));
-    const paid = (u.data.paid || []).filter((p) => p.bot === botId && p.enabled).map((p) => `; ${p.label} (paid): ${p.dayTokens}/${p.perDay} today, ${p.monthTokens}/${p.perMonth} this month${p.headroom === 0 ? " (cap reached)" : ""}`).join("");
-    meterText.textContent = `${u.data.chatsToday}/${u.data.maxChatsPerDay} messages, ${u.data.tokensToday}/${u.data.maxTokensPerDay} tokens today${paid}`;
+  const resetLive = () => {
+    text = "";
+    if (paintTimer) clearTimeout(paintTimer);
+    paintTimer = null;
+    clear(liveBody);
+    clear(liveTools);
+    typing.hidden = false;
+    live.hidden = true;
   };
-  const showThread = async () => {
-    if (!thread) return clear(log, h("p", { class: "muted" }, "Start a chat below."), (bot.starters || []).map((s) => h("button", { class: "btn btn-small", type: "button", onclick: () => ((input.value = s), input.focus()) }, s)));
-    const t = await ctx.api.call("/api/chat/thread/get", { bot: botId, thread });
-    if (!t.ok) return clear(log, h("p", { class: "banner banner-error", role: "alert" }, t.data.message || "That chat is gone."));
-    clear(log, t.data.thread.messages.map(messageEl), live, cards);
+  // Live Markdown from the full text, at most every 100 ms; past 20,000 characters plain text.
+  const paint = () => {
+    paintTimer = null;
+    lastPaint = Date.now();
+    typing.hidden = text !== "";
+    if (text === "") clear(liveBody);
+    else clear(liveBody, text.length > PLAIN_OVER ? h("p", { class: "plain" }, text) : renderMarkdown(text));
     log.scrollTop = log.scrollHeight;
-    if (t.data.running) follow();
   };
-  const loadThreads = async () => {
-    const t = search.value.trim().length >= 2 ? await ctx.api.call("/api/chat/thread/search", { q: search.value.trim() }) : await ctx.api.call("/api/chat/threads", { bot: botId });
-    const items = t.ok ? t.data.threads.filter((x) => x.botId === botId) : [];
-    clear(
-      list,
-      items.map((x) =>
-        h(
-          "li",
-          { class: x.id === thread ? "thread current" : "thread" },
-          h("button", { class: "btn thread-open", type: "button", "aria-current": x.id === thread ? "true" : null, onclick: () => ctx.go(`#/chat/${botId}/${x.id}`) }, x.pinned ? "[pinned] " : "", x.title, h("span", { class: "muted small" }, x.preview)),
-          h(
-            "span",
-            { class: "row" },
-            h("button", { class: "btn btn-small", type: "button", "aria-label": `Pin ${x.title}`, onclick: async () => (await ctx.api.call("/api/chat/thread/pin", { bot: botId, thread: x.id, pinned: !x.pinned }), loadThreads()) }, x.pinned ? "Unpin" : "Pin"),
-            h("button", { class: "btn btn-small", type: "button", "aria-label": `Rename ${x.title}`, onclick: async () => { const n = ctx.prompt("New name", x.title); if (n) { await ctx.api.call("/api/chat/thread/rename", { bot: botId, thread: x.id, title: n }); loadThreads(); } } }, "Rename"),
-            h("button", { class: "btn btn-small", type: "button", "aria-label": `Export ${x.title}`, onclick: async () => { const r = await ctx.api.call("/api/chat/thread/export", { bot: botId, thread: x.id, format: "md" }); if (r.ok) ctx.download(r.data.name, r.data.body, r.data.type); } }, "Export"),
-            h("button", { class: "btn btn-small btn-danger", type: "button", "aria-label": `Delete ${x.title}`, onclick: async () => { if (!ctx.confirm(`Delete "${x.title}"?`)) return; await ctx.api.call("/api/chat/thread/delete", { bot: botId, thread: x.id }); if (x.id === thread) ctx.go(`#/chat/${botId}`); else loadThreads(); } }, "Delete"),
-          ),
-        ),
-      ),
+  const schedulePaint = () => {
+    if (!paintTimer) paintTimer = setTimeout(paint, Math.max(0, PAINT_MS - (Date.now() - lastPaint)));
+  };
+
+  // ----- messages -----
+  const regenerate = async () => {
+    const r = await ctx.api.call("/api/chat/regenerate", { bot: botId, thread });
+    if (!r.ok) return setStatus(r.data.message || "Could not regenerate.");
+    setStatus("");
+    const t = await ctx.api.call("/api/chat/thread/get", { bot: botId, thread });
+    if (t.ok) drawMessages(t.data.thread.messages);
+    follow();
+  };
+  const messageEl = (m, isLast) => {
+    const mine = m.role === "user";
+    const actions = [];
+    if (!mine) {
+      if (canCopy()) {
+        const label = h("span", {}, "Copy");
+        actions.push(h("button", { class: "btn btn-small btn-ghost", type: "button", onclick: () => navigator.clipboard.writeText(m.text || "").then(() => clear(label, "Copied"), () => {}) }, icon("copy"), label));
+      }
+      if (isLast) actions.push(h("button", { class: "btn btn-small btn-ghost", type: "button", onclick: regenerate }, icon("retry"), "Regenerate"));
+    }
+    return h(
+      "article",
+      { class: `msg msg-${m.role}${isLast ? " msg-last" : ""}`, "aria-label": mine ? "You" : "Bot" },
+      m.notice ? h("p", { class: "sysline" }, m.notice) : null,
+      h("div", { class: "bubble" }, mine ? h("p", { class: "plain" }, m.text) : renderMarkdown(m.text || "")),
+      toolRow(m.tools),
+      m.stopped ? h("p", { class: "sysline" }, "Stopped.") : null,
+      m.error ? h("p", { class: "msg-error", role: "alert" }, m.error, isLast ? h("button", { class: "btn btn-small", type: "button", onclick: regenerate }, icon("retry"), "Retry") : null) : null,
+      actions.length > 0 ? h("div", { class: "msg-actions" }, actions) : null,
     );
   };
+  function drawMessages(msgs) {
+    let prev = 0;
+    const items = [];
+    msgs.forEach((m, i) => {
+      if (!prev || m.at - prev > GAP_MS) items.push(h("p", { class: "daysep" }, sepLabel(m.at)));
+      prev = m.at;
+      items.push(messageEl(m, i === msgs.length - 1));
+    });
+    clear(log, items, live, cards);
+    log.scrollTop = log.scrollHeight;
+  }
+  const useStarter = (s) => {
+    input.value = s;
+    grow();
+    input.focus();
+  };
+  const showEmpty = () => {
+    const av = avatarEl(bot.avatar);
+    av.className = av.className.replace("av-md", "av-lg");
+    clear(
+      log,
+      h("div", { class: "empty" }, av, h("p", { class: "empty-title" }, `Start a chat with ${bot.name}.`), bot.tagline ? h("p", { class: "muted" }, bot.tagline) : null, h("div", { class: "chips" }, (bot.starters || []).map((s) => h("button", { class: "btn btn-small", type: "button", onclick: () => useStarter(s) }, s)))),
+      live,
+      cards,
+    );
+  };
+  const showThread = async () => {
+    if (!thread) return showEmpty();
+    const skel = setTimeout(() => clear(log, [0, 1, 2].map(() => h("div", { class: "skel skel-msg", "aria-hidden": "true" }))), 150);
+    const t = await ctx.api.call("/api/chat/thread/get", { bot: botId, thread });
+    clearTimeout(skel);
+    if (disposed) return;
+    if (!t.ok) return clear(log, h("div", { class: "banner banner-error", role: "alert" }, t.data.message || "That chat is gone.", h("button", { class: "btn btn-small", type: "button", onclick: showThread }, "Retry")));
+    drawMessages(t.data.thread.messages);
+    if (t.data.running && !following) follow();
+  };
+
+  // ----- approvals -----
   const approvalCard = (card) => {
+    const wrap = h("div", {});
     const why = h("p", { class: "help", hidden: true }, card.why);
-    const done = (txt) => clear(el, h("p", { class: "muted small" }, txt));
     const decide = async (d) => {
       const r = await ctx.api.call("/api/chat/approval", { token: card.token, decision: d });
-      done(r.ok ? (d === "approve" ? "Approved." : "Denied.") : "That request is no longer open.");
+      clear(wrap, h("p", { class: "sysline" }, r.ok ? (d === "approve" ? "Approved." : "Denied.") : "That request is no longer open."));
     };
-    const el = h("div", { class: "card approval", role: "group", "aria-label": "Approval needed" }, h("strong", {}, "Approval needed"), h("p", {}, card.summary), why, h("div", { class: "row" }, h("button", { class: "btn btn-primary", type: "button", onclick: () => decide("approve") }, "Approve"), h("button", { class: "btn", type: "button", onclick: () => decide("deny") }, "Deny"), h("button", { class: "btn btn-small", type: "button", onclick: () => (why.hidden = !why.hidden) }, "Why")));
-    return el;
+    clear(
+      wrap,
+      h(
+        "div",
+        { class: "card actioncard", role: "group", "aria-label": "Approval needed" },
+        h("div", { class: "row" }, h("strong", {}, "Approval needed"), h("span", { class: "pill-warn" }, "Waiting for you")),
+        h("p", {}, card.summary),
+        why,
+        h("div", { class: "row actions" }, h("button", { class: "btn btn-primary", type: "button", onclick: () => decide("approve") }, "Approve"), h("button", { class: "btn", type: "button", onclick: () => decide("deny") }, "Deny"), h("button", { class: "btn btn-ghost", type: "button", onclick: () => (why.hidden = !why.hidden) }, "Why")),
+      ),
+    );
+    return wrap;
   };
-  const follow = async () => {
-    if (!thread) return;
-    setRunning(true);
-    abort = new AbortController();
-    let text = "";
-    const r = await ctx.api.stream(botId, thread, {
-      last,
-      signal: abort.signal,
-      onEvent: (ev) => {
-        last = ev.id;
-        const d = ev.data;
-        if (ev.type === "queued") status.textContent = "Waiting for the model…";
-        else if (ev.type === "delta") {
-          status.textContent = "";
-          text += d.text;
-          liveText.textContent = text;
-        } else if (ev.type === "notice") status.textContent = d.text;
-        else if (ev.type === "tool") liveTools.append(h("span", { class: `chip chip-${d.status}` }, `${d.name}: ${d.status}`));
-        else if (ev.type === "approval") cards.append(approvalCard(d.card));
-        else if (ev.type === "question") status.textContent = d.text;
-      },
-    });
-    last = 0;
-    setRunning(false);
-    if (r.ok) await showThread();
-    await Promise.all([usage(), loadThreads(), ctx.refreshBots()]);
+
+  // ----- streaming -----
+  const onEvent = (ev) => {
+    last = ev.id;
+    const d = ev.data;
+    if (ev.type === "queued") setStatus("Waiting for the model…");
+    else if (ev.type === "delta") {
+      if (text === "") setStatus("");
+      text += d.text;
+      schedulePaint();
+    } else if (ev.type === "notice" || ev.type === "question") setStatus(d.text);
+    else if (ev.type === "tool") liveTools.append(h("span", { class: `chip chip-${d.status}` }, `${d.name}: ${d.status}`));
+    else if (ev.type === "approval") cards.append(approvalCard(d.card));
   };
-  const send = async () => {
-    const text = input.value.trim();
-    if (!text) return;
-    const r = await ctx.api.call("/api/chat/send", { bot: botId, text, ...(thread ? { thread } : {}) });
-    if (!r.ok) {
-      status.textContent = r.data.message || "Could not send.";
-      return;
+  const sleep = (ms) => new Promise((res) => ((wake = res), setTimeout(res, ms)));
+  async function follow(resume) {
+    if (!thread || following) return;
+    following = true;
+    if (!resume) {
+      last = 0;
+      resetLive();
+      clear(cards);
     }
+    setRunning(true);
+    setStatus(resume ? "" : "Waiting for the model…");
+    paint();
+    let ok = false;
+    for (let tries = 0; ; ) {
+      abort = new AbortController();
+      const r = await ctx.api.stream(botId, thread, { last, signal: abort.signal, onEvent });
+      if (disposed) return;
+      if (r.ok) {
+        ok = true;
+        break;
+      }
+      // A failed stream does not reset `last`: the next try replays only what came after it. If the run is over, show the result instead.
+      const t = await ctx.api.call("/api/chat/thread/get", { bot: botId, thread });
+      if (disposed) return;
+      if (t.ok && !t.data.running) {
+        ok = true;
+        break;
+      }
+      if (tries >= delays.length) break;
+      setStatus("Connection lost. Reconnecting…");
+      await sleep(delays[tries++]);
+      if (disposed) return;
+    }
+    following = false;
+    if (paintTimer) clearTimeout(paintTimer);
+    paint();
+    setRunning(false);
+    if (!ok) return setStatus("Connection lost.", () => follow(true));
+    setStatus("");
+    resetLive();
+    await showThread();
+    await Promise.all([details.refresh(), ctx.refreshBots()]);
+  }
+  const send = async () => {
+    const body = input.value.trim();
+    if (!body || running) return;
+    const r = await ctx.api.call("/api/chat/send", { bot: botId, text: body, ...(thread ? { thread } : {}) });
+    if (!r.ok) return setStatus(r.data.message || "Could not send.");
     input.value = "";
-    status.textContent = "";
+    grow();
+    setStatus("");
     if (!thread) {
       thread = r.data.threadId;
       ctx.replace(`#/chat/${botId}/${thread}`);
+      details.setThread(thread);
     }
-    last = 0;
-    clear(log, (await ctx.api.call("/api/chat/thread/get", { bot: botId, thread })).data.thread.messages.map(messageEl), live, cards);
+    const t = await ctx.api.call("/api/chat/thread/get", { bot: botId, thread });
+    if (t.ok) drawMessages(t.data.thread.messages);
     follow();
   };
-  stopBtn.addEventListener("click", async () => {
-    await ctx.api.call("/api/chat/stop", { thread });
-  });
-  regenBtn.addEventListener("click", async () => {
-    const r = await ctx.api.call("/api/chat/regenerate", { bot: botId, thread });
-    if (!r.ok) {
-      status.textContent = r.data.message || "Could not regenerate.";
-      return;
-    }
-    last = 0;
-    follow();
-  });
-  search.addEventListener("input", loadThreads);
-
-  const newBtn = h("button", { class: "btn", type: "button", onclick: () => ctx.go(`#/chat/${botId}`) }, "New chat");
-  const root = h(
-    "section",
-    { class: "chat", "aria-labelledby": "chat-title" },
-    h("aside", { class: "chat-side", "aria-label": "Chats" }, newBtn, search, list),
-    h(
-      "div",
-      { class: "pane" },
-      h("header", { class: "row" }, h("h1", { id: "chat-title" }, bot.name), h("span", { class: bot.cloud ? "badge badge-cloud" : "badge" }, bot.cloud ? `${bot.presetLabel} (cloud)` : bot.presetLabel)),
-      h("p", { class: "muted small" }, bot.egressNote),
-      log,
-      status,
-      h(
-        "form",
-        {
-          class: "composer",
-          onsubmit: (ev) => {
-            ev.preventDefault();
-            send();
-          },
-        },
-        input,
-        h("div", { class: "row" }, sendBtn, stopBtn, regenBtn),
-      ),
-      h("div", { class: "row" }, meter, meterText),
-    ),
-  );
+  const stop = () => ctx.api.call("/api/chat/stop", { thread });
+  stopBtn.addEventListener("click", stop);
+  input.addEventListener("input", grow);
   input.addEventListener("keydown", (ev) => {
     if (ev.key === "Enter" && !ev.shiftKey && !ev.isComposing) {
       ev.preventDefault();
       send();
+    } else if (ev.key === "Escape" && running) {
+      ev.preventDefault();
+      stop();
     }
   });
-  await Promise.all([showThread(), loadThreads(), usage()]);
-  root.dispose = () => abort && abort.abort();
+
+  // ----- details pane -----
+  const wide = () => typeof matchMedia !== "function" || matchMedia("(min-width: 1100px)").matches;
+  const toggle = h("button", { class: "btn btn-icon", type: "button", "aria-expanded": "false", onclick: () => setDetails(!ctx.detailsOpen(), true) }, icon("details", "Details"));
+  function setDetails(on, focus) {
+    if (on) ctx.openDetails(details);
+    else ctx.closeDetails();
+    toggle.setAttribute("aria-expanded", on ? "true" : "false");
+    if (focus) (on ? details.focusClose : () => toggle.focus())();
+  }
+  const details = renderDetails(ctx, bot, { botId, thread, onClose: () => setDetails(false, true), onStarter: useStarter });
+
+  const av = avatarEl(bot.avatar);
+  av.className = av.className.replace("av-md", "av-sm");
+  const root = h(
+    "section",
+    { class: "chatview", "aria-labelledby": "chat-title" },
+    h("header", { class: "chathead" }, h("a", { class: "btn btn-icon chat-back", href: "#/bots" }, icon("back", "Back to bots")), av, h("h1", { id: "chat-title" }, bot.name), badgeEl(bot), toggle),
+    log,
+    status,
+    h("div", { class: "composer-wrap" }, h("form", { class: "composer", onsubmit: (ev) => (ev.preventDefault(), send()) }, input, sendBtn, stopBtn)),
+  );
+  root.afterMount = () => {
+    if (wide()) setDetails(true, false);
+  };
+  root.dispose = () => {
+    disposed = true;
+    if (abort) abort.abort();
+    if (paintTimer) clearTimeout(paintTimer);
+    if (wake) wake();
+  };
+  await Promise.all([showThread(), details.refresh()]);
   return root;
 }
