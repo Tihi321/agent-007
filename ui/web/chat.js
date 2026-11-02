@@ -1,11 +1,13 @@
 // Chat (S35, WR3): header, message log, composer pill, approval cards. The thread list and the usage meter live in the details pane (details.js).
 // The stream is followed with fetch + Last-Event-ID, so a reload or a dropped connection resumes the same answer: on a failure while the thread is
 // still running the view waits 1 s, 2 s, 4 s and follows again from the last event id (the live text is kept, never rebuilt twice).
-// The live bubble shows typing dots until the first delta, then Markdown re-rendered from the full text at most every 100 ms (plain text past 20,000 chars).
+// The live bubble shows typing dots until the first delta, then Markdown at most every 100 ms: finished blocks are appended once, and only the
+// last open block is rendered again (plain text when that block passes 20,000 chars). The finished answer is drawn again from the thread.
 import { avatarEl, badgeEl } from "./bots.js";
 import { renderDetails } from "./details.js";
 import { clear, h, icon } from "./dom.js";
-import { renderMarkdown } from "./markdown.js";
+import { blockCutter } from "./markdown-parse.js";
+import { markdownBlocks, renderMarkdown } from "./markdown.js";
 import { shortTime } from "./time.js";
 
 const GAP_MS = 30 * 60_000;
@@ -40,6 +42,11 @@ export async function renderChat(ctx, botId, threadId) {
   let lastPaint = 0;
   let wake = null;
   let sleepTimer = null;
+  // Live render state: text.slice(0, doneLen) is already in liveDone as finished blocks; liveTail holds the open block.
+  let cutAt = blockCutter();
+  let doneLen = 0;
+  const liveDone = h("div", { class: "md" });
+  const liveTail = h("div", { class: "md" });
 
   const typing = h("span", { class: "typing", "aria-hidden": "true" }, h("span"), h("span"), h("span"));
   const liveBody = h("div", { class: "live-body" });
@@ -69,19 +76,32 @@ export async function renderChat(ctx, botId, threadId) {
     text = "";
     if (paintTimer) clearTimeout(paintTimer);
     paintTimer = null;
+    cutAt = blockCutter();
+    doneLen = 0;
+    clear(liveDone);
+    clear(liveTail);
     clear(liveBody);
     clear(liveTools);
     typing.hidden = false;
     live.hidden = true;
   };
-  // Live Markdown from the full text, at most every 100 ms; past 20,000 characters plain text.
+  // Live Markdown at most every 100 ms: new finished blocks are appended, the open block is drawn again; an open block past 20,000 chars is plain text.
   const paint = () => {
     paintTimer = null;
     lastPaint = Date.now();
     const stick = !(log.scrollHeight - log.scrollTop - log.clientHeight > 48);
     typing.hidden = text !== "";
     if (text === "") clear(liveBody);
-    else clear(liveBody, text.length > PLAIN_OVER ? h("p", { class: "plain" }, text) : renderMarkdown(text));
+    else {
+      const cut = cutAt(text);
+      if (cut > doneLen) {
+        liveDone.append(...markdownBlocks(text.slice(doneLen, cut)));
+        doneLen = cut;
+      }
+      const open = text.slice(doneLen);
+      clear(liveTail, open.length > PLAIN_OVER ? h("p", { class: "plain" }, open) : markdownBlocks(open));
+      if (liveBody.childNodes.length === 0) clear(liveBody, liveDone, liveTail);
+    }
     if (stick) log.scrollTop = log.scrollHeight;
   };
   const schedulePaint = () => {

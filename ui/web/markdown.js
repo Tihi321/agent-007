@@ -25,20 +25,26 @@ function codeBlock(b) {
   return h("div", { class: "code-block" }, head, h("pre", {}, h("code", {}, b.v)));
 }
 
-export function renderMarkdown(src) {
-  const root = h("div", { class: "md" });
-  for (const b of parseMarkdown(src)) {
-    if (b.t === "p") root.append(h("p", {}, inline(b.c)));
-    else if (b.t === "h") root.append(h(`h${Math.min(6, b.level + 2)}`, {}, inline(b.c)));
-    else if (b.t === "pre") root.append(codeBlock(b));
-    else if (b.t === "hr") root.append(h("hr", {}));
-    else if (b.t === "table") {
-      root.append(h("div", { class: "table-wrap" }, h("table", {},
-        h("thead", {}, h("tr", {}, b.head.map((c) => h("th", {}, inline(c))))),
-        h("tbody", {}, b.rows.map((r) => h("tr", {}, r.map((c) => h("td", {}, inline(c)))))))));
-    }
-    else if (b.t === "ul" || b.t === "ol") root.append(h(b.t, {}, b.items.map((it) => h("li", {}, inline(it)))));
-    else if (b.t === "quote") root.append(h("blockquote", {}, inline(b.c)));
+function block(b) {
+  if (b.t === "p") return h("p", {}, inline(b.c));
+  if (b.t === "h") return h(`h${Math.min(6, b.level + 2)}`, {}, inline(b.c));
+  if (b.t === "pre") return codeBlock(b);
+  if (b.t === "hr") return h("hr", {});
+  if (b.t === "table") {
+    return h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, b.head.map((c) => h("th", {}, inline(c))))),
+      h("tbody", {}, b.rows.map((r) => h("tr", {}, r.map((c) => h("td", {}, inline(c))))))));
   }
-  return root;
+  if (b.t === "ul" || b.t === "ol") return h(b.t, {}, b.items.map((it) => h("li", {}, inline(it))));
+  if (b.t === "quote") return h("blockquote", {}, inline(b.c));
+  return null;
+}
+
+/** The block elements of a Markdown text, without the wrapper (the live answer appends finished blocks one by one). */
+export function markdownBlocks(src) {
+  return parseMarkdown(src).map(block).filter(Boolean);
+}
+
+export function renderMarkdown(src) {
+  return h("div", { class: "md" }, markdownBlocks(src));
 }

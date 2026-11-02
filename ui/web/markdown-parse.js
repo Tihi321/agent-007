@@ -149,3 +149,34 @@ export function parseMarkdown(src) {
   endPara();
   return blocks;
 }
+
+/**
+ * Follows a growing Markdown text (the live answer) and returns where its finished blocks end: just after the last blank line outside a
+ * fenced code block. A blank line outside a fence closes every block, so parseMarkdown(text) equals the blocks of text.slice(0, cut) followed
+ * by those of text.slice(cut). Only new complete lines are scanned, so following a whole answer is linear. A fence line with a "|" could be
+ * a table row instead of a fence, so after one the cutter stops cutting (the rest renders as one open block, which is always exact).
+ */
+export function blockCutter() {
+  let scanned = 0;
+  let inFence = false;
+  let stuck = false;
+  let cut = 0;
+  return (text) => {
+    let nl;
+    while ((nl = text.indexOf("\n", scanned)) >= 0) {
+      let blank = false;
+      // parseMarkdown also splits at a lone "\r".
+      for (const line of text.slice(scanned, nl).replace(/\r$/, "").split("\r")) {
+        blank = false;
+        if (inFence) inFence = !/^```\s*$/.test(line);
+        else if (/^```([^`]*)$/.test(line)) {
+          inFence = true;
+          if (line.includes("|")) stuck = true;
+        } else blank = line.trim() === "";
+      }
+      scanned = nl + 1;
+      if (blank && !stuck) cut = scanned;
+    }
+    return cut;
+  };
+}

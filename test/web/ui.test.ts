@@ -7,7 +7,7 @@ import { pathToFileURL } from "node:url";
 import { totpAt, totpStep } from "../../src/web/totp.js";
 import { ROOT } from "../settings/helpers.js";
 import { ScriptedEngine, makeApp, until } from "./app.js";
-import { FElement, all, buttonByText, byName, byTag, fakeDocument } from "./fakeDom.js";
+import { FElement, FNode, all, buttonByText, byName, byTag, fakeDocument } from "./fakeDom.js";
 import { http } from "./helpers.js";
 
 const DIST = join(ROOT, "dist", "ui", "web");
@@ -290,16 +290,21 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
 test("WA5: a dropped stream resumes from the last event id with no duplicated or lost text", async () => {
   (globalThis as any).document = fakeDocument;
   const { renderChat } = await load("chat.js");
+  const { renderMarkdown } = await load("markdown.js");
+  // blank lines inside and outside a fence, spread over several live paints: finished blocks are appended, the open one is redrawn
   const events = [
     { id: 1, type: "delta", data: { text: "Hello " } },
-    { id: 2, type: "delta", data: { text: "big " } },
-    { id: 3, type: "delta", data: { text: "**world**" } },
+    { id: 2, type: "delta", data: { text: "big\n\n```js\na\n\nb" } },
+    { id: 3, type: "delta", data: { text: "\n```\n\n**world**" } },
+    { id: 4, type: "delta", data: { text: " and\n\n- more" } },
   ];
+  const full = events.map((e) => e.data.text).join("");
+  const shape = (n: FNode): string => (n instanceof FElement ? `<${n.tagName} ${n.className}>${n.childNodes.map(shape).join("")}</>` : n.textContent);
   const lasts: number[] = [];
   let done = false;
   let root: FElement | undefined;
   const bot = { id: "b", name: "Bee", avatar: "robot", presetLabel: "strata", cloud: false, starters: [] };
-  const finalMessages = [{ role: "user", text: "hi", at: 1 }, { role: "assistant", text: "Hello big **world**", at: 2 }];
+  const finalMessages = [{ role: "user", text: "hi", at: 1 }, { role: "assistant", text: full, at: 2 }];
   const api = {
     async call(path: string) {
       if (path === "/api/bots/get") return { ok: true, status: 200, data: { bot } };
@@ -311,13 +316,16 @@ test("WA5: a dropped stream resumes from the last event id with no duplicated or
       lasts.push(o.last);
       if (lasts.length === 1) {
         events.slice(0, 2).forEach((e) => o.onEvent(e));
+        await new Promise((r) => setTimeout(r, 150)); // a live paint while the fence is still open
         return { ok: false }; // the connection drops mid-answer
       }
       await until(() => root !== undefined);
-      events.filter((e) => e.id > o.last).forEach((e) => o.onEvent(e));
-      await new Promise((r) => setTimeout(r, 150)); // let the 100 ms live render run
-      const liveEl = all(root!).find((e) => e.className.includes("live"))!;
-      assert.equal(liveEl.textContent, "Hello big world", "the live bubble has every delta once");
+      for (const e of events.filter((x) => x.id > o.last)) {
+        o.onEvent(e);
+        await new Promise((r) => setTimeout(r, 150)); // let the 100 ms live render run
+      }
+      const liveBody = all(root!).find((e) => e.className === "live-body")!;
+      assert.equal(liveBody.childNodes.flatMap((md) => md.childNodes).map(shape).join(""), renderMarkdown(full).childNodes.map(shape).join(""), "the live bubble renders every delta once, as the whole text would");
       done = true;
       return { ok: true };
     },
@@ -327,7 +335,7 @@ test("WA5: a dropped stream resumes from the last event id with no duplicated or
   const finalBubbles = () => all(root!).filter((e) => e.tagName === "article" && e.className.startsWith("msg msg-assistant"));
   await until(() => finalBubbles().length === 1);
   assert.deepEqual(lasts, [0, 2], "the second call carried the last event id");
-  assert.equal(finalBubbles()[0]!.textContent.replace(/Regenerate/g, ""), "Hello big world");
+  assert.equal(finalBubbles()[0]!.textContent.replace(/Regenerate/g, ""), renderMarkdown(full).textContent);
 });
 
 test("the gateway serves the built UI: index with the strict headers, scripts and styles with the right types, nothing outside the map", async () => {
