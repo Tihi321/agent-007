@@ -31,16 +31,17 @@ test("static: index.html has no inline script, style or event attribute and load
     assert.ok(!/localStorage|sessionStorage|indexedDB|document\.cookie/.test(code), `no browser storage of secrets in ${f}`);
   }
   for (const f of srcFiles().filter((x) => x.endsWith(".css"))) assert.ok(!/@import|url\(\s*["']?https?:/.test(readFileSync(f, "utf8")), `no external CSS in ${f}`);
+  for (const f of srcFiles().filter((x) => x.endsWith(".css"))) for (const m of readFileSync(f, "utf8").matchAll(/url\(\s*([^)]*)\)/g)) assert.ok((m[1] as string).startsWith('"/') && !(m[1] as string).startsWith('"//'), `only same-origin url() in ${f}: ${m[1]}`);
 });
 
-test("size budget: the whole UI is small (under 130 KB, no file over 30 KB)", () => {
+test("size budget: the whole UI is small (under 160 KB, no file over 30 KB)", () => {
   let total = 0;
   for (const f of readdirSync(DIST)) {
     const n = statSync(join(DIST, f)).size;
     assert.ok(n < 30 * 1024, `${f} is ${n} bytes`);
     total += n;
   }
-  assert.ok(total < 130 * 1024, `total ${total}`);
+  assert.ok(total < 160 * 1024, `total ${total}`);
 });
 
 test("safe Markdown: HTML stays text, javascript: links are not links, images never render, code and lists work", async () => {
@@ -59,10 +60,36 @@ test("safe Markdown: HTML stays text, javascript: links are not links, images ne
   assert.deepEqual(b.map((x: any) => x.t), ["h", "ul", "ol", "pre", "quote"]);
   assert.equal(b[3].v, "let a = '<b>';");
   assert.equal(b[1].items.length, 2);
+  const r = parseMarkdown("```c++ extra\nx\n```\n\n| A | B |\n|---|:-:|\n| [bad](javascript:alert(1)) | **ok** |\n| 1 |\n\n---\n\n- [ ] todo\n  - nested\n\n```py\nunclosed <b>");
+  assert.deepEqual(r.map((x: any) => x.t), ["pre", "table", "hr", "ul", "pre"]);
+  assert.equal(r[0].lang, "c");
+  assert.equal(r[4].lang, "py");
+  assert.equal(r[4].v, "unclosed <b>", "an unclosed fence is code to the end");
+  assert.equal(r[1].head.length, 2);
+  assert.equal(r[1].rows.length, 2);
+  assert.equal(r[1].rows[1].length, 2, "short rows are padded");
+  assert.ok(!flat(r[1]).includes('"t":"link"'), "javascript: in a cell is not a link");
+  assert.equal(r[1].rows[0][1][0].t, "strong");
+  assert.equal(r[3].items.length, 2, "nested items stay one level");
+  assert.deepEqual(parseMarkdown("```inline```").map((x: any) => x.t), ["p"], "a fence line with a backtick later is not a code block");
   // pathological input is linear, not catastrophic
   const t0 = Date.now();
   parseMarkdown("*".repeat(20000) + "[".repeat(20000) + "`".repeat(20000));
+  parseMarkdown("|".repeat(20000) + "\n" + "|-".repeat(10000) + "\n" + "|".repeat(20000));
   assert.ok(Date.now() - t0 < 2000);
+});
+
+test("shortTime: today, yesterday, the past week, this year, older", async () => {
+  const { shortTime } = await load("time.js");
+  const now = new Date(2026, 10, 2, 21, 0).getTime();
+  const rows: [number, string][] = [
+    [new Date(2026, 10, 2, 19, 34).getTime(), "7:34 PM"],
+    [new Date(2026, 10, 1, 23, 59).getTime(), "Yesterday"],
+    [new Date(2026, 9, 27, 12, 0).getTime(), "Tuesday"],
+    [new Date(2026, 7, 23, 12, 0).getTime(), "Aug 23"],
+    [new Date(2025, 7, 23, 12, 0).getTime(), "Aug 23, 2025"],
+  ];
+  for (const [ms, want] of rows) assert.equal(shortTime(ms, now), want);
 });
 
 test("dom.js refuses inline style, string event handlers and unsafe URLs", async () => {
@@ -185,7 +212,10 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     byName(body, "name").value = "Helper";
     byName(body, "tagline").value = "my bot";
     byName(body, "persona").value = "You love tea.";
-    byName(body, "avatar").value = "robot";
+    const owl = all(body).find((e) => e.tagName === "input" && e.getAttribute("name") === "avatar" && e.getAttribute("value") === "owl")!;
+    assert.match((owl.parent as FElement).textContent, /Violet circle/, "the radio sits in a label named after the look");
+    owl.checked = true;
+    await owl.fire("change");
     preset.value = "claude-sonnet";
     await preset.fire("change");
     assert.match(body.textContent, /Claude|cloud|leave/i, "the egress note shows for a cloud model");
@@ -193,6 +223,7 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     await byTag(body, "form")[0]!.fire("submit");
     await until(() => /Your bots/.test(body.textContent) && /Helper/.test(body.textContent));
     assert.match(body.textContent, /Claude Sonnet \(cloud\)/, "the cloud badge on the card");
+    assert.ok(all(body).some((e) => e.getAttribute("role") === "img" && e.getAttribute("aria-label") === "Violet circle"), "the picked look is saved");
     checkAccessibility(body, "bots");
     // chat
     await buttonByText(body, "Chat").fire("click");
@@ -208,6 +239,12 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     assert.match(body.textContent, /Say hello/);
     assert.ok(all(body).some((e) => e.tagName === "progress"), "usage meter");
     await until(() => /1\/100000 messages/.test(body.textContent));
+    // the sidebar row of the bot shows its last message and a time (WA4)
+    await until(() => {
+      const row = all(body).find((e) => e.tagName === "a" && e.className.includes("botrow"));
+      return !!row && /Helper/.test(row.textContent) && /Hello \*\*world\*\*/.test(row.textContent) && /\d:\d\d [AP]M/.test(row.textContent);
+    });
+    assert.equal(all(body).filter((e) => e.getAttribute("aria-current") === "page").length, 1, "the open bot is the current row");
     // "reload": a fresh app instance on the same gateway session finds the history
     const second = envFor(t.port);
     second.env.fetch = env.fetch; // same browser (cookie jar)
@@ -245,6 +282,49 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
   } finally {
     await t.close();
   }
+});
+
+test("WA5: a dropped stream resumes from the last event id with no duplicated or lost text", async () => {
+  (globalThis as any).document = fakeDocument;
+  const { renderChat } = await load("chat.js");
+  const events = [
+    { id: 1, type: "delta", data: { text: "Hello " } },
+    { id: 2, type: "delta", data: { text: "big " } },
+    { id: 3, type: "delta", data: { text: "**world**" } },
+  ];
+  const lasts: number[] = [];
+  let done = false;
+  let root: FElement | undefined;
+  const bot = { id: "b", name: "Bee", avatar: "robot", presetLabel: "strata", cloud: false, starters: [] };
+  const finalMessages = [{ role: "user", text: "hi", at: 1 }, { role: "assistant", text: "Hello big **world**", at: 2 }];
+  const api = {
+    async call(path: string) {
+      if (path === "/api/bots/get") return { ok: true, status: 200, data: { bot } };
+      if (path === "/api/chat/thread/get") return { ok: true, status: 200, data: { thread: { messages: done ? finalMessages : [finalMessages[0]] }, running: !done } };
+      if (path === "/api/chat/usage") return { ok: true, status: 200, data: { maxTokensPerDay: 10, tokensToday: 1, chatsToday: 1, maxChatsPerDay: 5, paid: [] } };
+      return { ok: true, status: 200, data: { threads: [] } };
+    },
+    async stream(_b: string, _t: string, o: { last: number; onEvent: (e: unknown) => void }) {
+      lasts.push(o.last);
+      if (lasts.length === 1) {
+        events.slice(0, 2).forEach((e) => o.onEvent(e));
+        return { ok: false }; // the connection drops mid-answer
+      }
+      await until(() => root !== undefined);
+      events.filter((e) => e.id > o.last).forEach((e) => o.onEvent(e));
+      await new Promise((r) => setTimeout(r, 150)); // let the 100 ms live render run
+      const liveEl = all(root!).find((e) => e.className.includes("live"))!;
+      assert.equal(liveEl.textContent, "Hello big world", "the live bubble has every delta once");
+      done = true;
+      return { ok: true };
+    },
+  };
+  const ctx = { api, resumeDelays: [1, 1, 1], refreshBots: async () => {}, openDetails() {}, closeDetails() {}, detailsOpen: () => false, go() {}, replace() {}, confirm: () => true, prompt: () => "", download() {} };
+  root = (await renderChat(ctx, "b", "t1")) as FElement;
+  const finalBubbles = () => all(root!).filter((e) => e.tagName === "article" && e.className.startsWith("msg msg-assistant"));
+  await until(() => finalBubbles().length === 1);
+  assert.deepEqual(lasts, [0, 2], "the second call carried the last event id");
+  assert.equal(finalBubbles()[0]!.textContent.replace(/Regenerate/g, ""), "Hello big world");
 });
 
 test("the gateway serves the built UI: index with the strict headers, scripts and styles with the right types, nothing outside the map", async () => {

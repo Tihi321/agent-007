@@ -402,7 +402,7 @@ export async function renderModels(ctx) {
   }
 
   await reload();
-  return h("section", { "aria-labelledby": "models-title" }, h("h1", { id: "models-title" }, "Models"), h("p", { class: "muted" }, "Fetch a provider's model list, tick the models to add, and they are usable by your web bots at once. Other people get a model only through their limits in Admin. Telegram bots use only the presets of the settings UI."), out, bannersEl, h("div", { class: "models" }, listEl, mainEl));
+  return h("section", { class: "page", "aria-labelledby": "models-title" }, h("h1", { id: "models-title" }, "Models"), h("p", { class: "muted" }, "Fetch a provider's model list, tick the models to add, and they are usable by your web bots at once. Other people get a model only through their limits in Admin. Telegram bots use only the presets of the settings UI."), out, bannersEl, h("div", { class: "models" }, listEl, mainEl));
 }
 
 // The per-user checklist on the Admin page: the catalogue presets, ticked from the user's caps. Returns the element; `save(ids)` posts the caps.

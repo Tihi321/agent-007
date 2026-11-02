@@ -31,6 +31,12 @@ function add(el, kids) {
   }
 }
 
+/** An icon drawn by a CSS mask from /i-<name>.svg. Decorative unless a label is given (then it is read as text). */
+export function icon(name, label) {
+  const i = h("span", { class: `icon i-${String(name).replace(/[^a-z]/g, "")}`, "aria-hidden": "true" });
+  return label ? [i, h("span", { class: "sr-only" }, label)] : i;
+}
+
 export function clear(el, ...kids) {
   el.replaceChildren();
   add(el, kids);

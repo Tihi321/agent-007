@@ -2,6 +2,7 @@
 import { clear, field, h } from "./dom.js";
 import { createPasskey, getPasskey, passkeysAvailable } from "./passkey.js";
 
+const logo = () => h("img", { class: "authlogo", src: "/icon.svg", alt: "", width: "48", height: "48" });
 const err = () => h("p", { class: "banner banner-error", role: "alert", hidden: true });
 const show = (el, msg) => {
   el.textContent = msg;
@@ -11,7 +12,8 @@ const show = (el, msg) => {
 function recoveryView(ctx, codes) {
   return h(
     "section",
-    { class: "card narrow", "aria-labelledby": "rc-title" },
+    { class: "card authcard", "aria-labelledby": "rc-title" },
+    logo(),
     h("h1", { id: "rc-title" }, "Save your recovery codes"),
     h("p", {}, "Each code works once if you lose your authenticator or passkey. They are shown only now."),
     h("pre", { class: "codes", "aria-label": "Recovery codes" }, codes.join("\n")),
@@ -37,7 +39,7 @@ export function renderSignIn(ctx) {
   const form = h(
     "form",
     {
-      class: "card narrow",
+      class: "card authcard",
       autocomplete: "off",
       onsubmit: async (ev) => {
         ev.preventDefault();
@@ -47,6 +49,7 @@ export function renderSignIn(ctx) {
         show(e, r.data.message || "Sign-in failed.");
       },
     },
+    logo(),
     h("h1", {}, "Sign in"),
     field("Login (your Tailscale email)", login),
     field("Password", pw),
@@ -102,13 +105,14 @@ function enrolForm(ctx, o) {
   const el = h(
     "form",
     {
-      class: "card narrow",
+      class: "card authcard",
       autocomplete: "off",
       onsubmit: (ev) => {
         ev.preventDefault();
         finish({ password: pw.value, totpCode: totp.value, ...Object.fromEntries(extra.map(([k, c]) => [k, c.value])) });
       },
     },
+    logo(),
     h("h1", {}, o.title),
     h("p", {}, "Add this key to an authenticator app (Aegis, Google Authenticator, 1Password), then type the 6-digit code it shows."),
     h("p", {}, "Key: ", h("code", { class: "secret" }, o.totp.secret)),
@@ -149,7 +153,7 @@ export function renderClaim(ctx) {
   const start = h(
     "form",
     {
-      class: "card narrow",
+      class: "card authcard",
       onsubmit: async (ev) => {
         ev.preventDefault();
         show(e, "");
@@ -158,6 +162,7 @@ export function renderClaim(ctx) {
         ctx.mount(enrolForm(ctx, { title: "Create the owner account", totp: r.data.totp, passkey: r.data.passkey, finishPath: "/api/claim/finish", finishBase: { claimId: r.data.claimId }, extraFields: [["login", login, "Your Tailscale login (an email address)"]] }));
       },
     },
+    logo(),
     h("h1", {}, "Claim this agent"),
     h("p", {}, "On this PC run ", h("code", {}, "yarn web-owner-code --data-dir <the agent data folder>"), " and enter the code it prints. This works only in a browser on the PC itself."),
     field("One-time code", code),
@@ -173,7 +178,7 @@ export function renderInvite(ctx, presetCode = "") {
   return h(
     "form",
     {
-      class: "card narrow",
+      class: "card authcard",
       onsubmit: async (ev) => {
         ev.preventDefault();
         show(e, "");
@@ -182,6 +187,7 @@ export function renderInvite(ctx, presetCode = "") {
         ctx.mount(enrolForm(ctx, { title: "Accept the invitation", totp: r.data.totp, passkey: r.data.passkey, finishPath: "/api/invite/finish", finishBase: { token: r.data.token, code: code.value } }));
       },
     },
+    logo(),
     h("h1", {}, "Accept your invitation"),
     h("p", {}, "Open this page from your own device on the tailnet and enter the code the owner gave you."),
     field("Invitation code", code),

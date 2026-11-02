@@ -44,7 +44,15 @@ export function parseInline(src) {
   return out;
 }
 
-/** Blocks: paragraphs, headings, fenced code, lists, quotes. */
+const cells = (line) => {
+  let t = line.trim();
+  if (t.startsWith("|")) t = t.slice(1);
+  if (t.endsWith("|")) t = t.slice(0, -1);
+  return t.split("|").map((c) => c.trim());
+};
+const isSep = (line) => line.includes("-") && cells(line).every((c) => /^:?-+:?$/.test(c));
+
+/** Blocks: paragraphs, headings, fenced code, tables, rules, lists, quotes. */
 export function parseMarkdown(src) {
   const lines = String(src).replace(/\r\n?/g, "\n").split("\n");
   const blocks = [];
@@ -56,12 +64,25 @@ export function parseMarkdown(src) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     let m;
-    if ((m = /^```(\w*)\s*$/.exec(line))) {
+    if ((m = /^```([^`]*)$/.exec(line))) {
       endPara();
       const code = [];
       i++;
       while (i < lines.length && !/^```\s*$/.test(lines[i])) code.push(lines[i++]);
-      blocks.push({ t: "pre", v: code.join("\n"), lang: m[1] });
+      blocks.push({ t: "pre", v: code.join("\n"), lang: (m[1].trim().split(/\s+/)[0] ?? "").replace(/[^A-Za-z0-9]/g, "") });
+    } else if (line.includes("|") && i + 1 < lines.length && lines[i + 1].includes("|") && isSep(lines[i + 1]) && cells(line).length === cells(lines[i + 1]).length) {
+      endPara();
+      const head = cells(line).map(parseInline);
+      const rows = [];
+      i++;
+      while (i + 1 < lines.length && lines[i + 1].trim() !== "" && lines[i + 1].includes("|")) {
+        const r = cells(lines[++i]);
+        rows.push(head.map((_, k) => parseInline(r[k] ?? "")));
+      }
+      blocks.push({ t: "table", head, rows });
+    } else if (/^\s*---+\s*$/.test(line)) {
+      endPara();
+      blocks.push({ t: "hr" });
     } else if ((m = /^(#{1,4})\s+(.*)$/.exec(line))) {
       endPara();
       blocks.push({ t: "h", level: m[1].length, c: parseInline(m[2]) });
