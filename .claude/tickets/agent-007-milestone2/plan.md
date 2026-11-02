@@ -212,6 +212,8 @@ Pixotope and work data off-limits; no installs, system changes, firewall, ACL, s
 
 Live order: **L1 local web UI, then L2 Tailscale (G6 tailnet checks), then L3 Telegram.** Reason (decision 2026-11-01): the M2 bot interface lets the owner test everything without Telegram first. These M1 live items are deferred until after G6b, in this order:
 
+**Inserted 2026-11-02 (user):** the next step, after the Models page (MS1 to MS6) and **before L2 Tailscale and L3 Telegram**, is the web UI redesign: a Grok-Bot-style layout that makes the web UI MVP-ready. The plan is `.claude/tickets/agent-007-web-ui-redesign/plan.md`, tasks WR1 to WR8. By default, L1 runs on the redesigned UI (WQ6).
+
 | Item | Source | Notes |
 |---|---|---|
 | Telegram live acceptance on the real deployment, the Telegram/phone-facing items of S8.3 (1 to 14) | G1, `phase1-acceptance.md` | Items needing no Telegram (ACL, `check-acl.ps1`, runner suite S8.2, restart/reboot) stay in M1 and run before L1 |
