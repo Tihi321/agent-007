@@ -34,14 +34,14 @@ test("static: index.html has no inline script, style or event attribute and load
   for (const f of srcFiles().filter((x) => x.endsWith(".css"))) for (const m of readFileSync(f, "utf8").matchAll(/url\(\s*([^)]*)\)/g)) assert.ok((m[1] as string).startsWith('"/') && !(m[1] as string).startsWith('"//'), `only same-origin url() in ${f}: ${m[1]}`);
 });
 
-test("size budget: the whole UI is small (under 130 KB, no file over 30 KB)", () => {
+test("size budget: the whole UI is small (under 160 KB, no file over 30 KB)", () => {
   let total = 0;
   for (const f of readdirSync(DIST)) {
     const n = statSync(join(DIST, f)).size;
     assert.ok(n < 30 * 1024, `${f} is ${n} bytes`);
     total += n;
   }
-  assert.ok(total < 130 * 1024, `total ${total}`);
+  assert.ok(total < 160 * 1024, `total ${total}`);
 });
 
 test("safe Markdown: HTML stays text, javascript: links are not links, images never render, code and lists work", async () => {
@@ -211,7 +211,10 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     byName(body, "name").value = "Helper";
     byName(body, "tagline").value = "my bot";
     byName(body, "persona").value = "You love tea.";
-    byName(body, "avatar").value = "robot";
+    const owl = all(body).find((e) => e.tagName === "input" && e.getAttribute("name") === "avatar" && e.getAttribute("value") === "owl")!;
+    assert.match((owl.parent as FElement).textContent, /Violet circle/, "the radio sits in a label named after the look");
+    owl.checked = true;
+    await owl.fire("change");
     preset.value = "claude-sonnet";
     await preset.fire("change");
     assert.match(body.textContent, /Claude|cloud|leave/i, "the egress note shows for a cloud model");
@@ -219,6 +222,7 @@ test("the whole journey in the UI, against the real gateway: claim the owner, cr
     await byTag(body, "form")[0]!.fire("submit");
     await until(() => /Your bots/.test(body.textContent) && /Helper/.test(body.textContent));
     assert.match(body.textContent, /Claude Sonnet \(cloud\)/, "the cloud badge on the card");
+    assert.ok(all(body).some((e) => e.getAttribute("role") === "img" && e.getAttribute("aria-label") === "Violet circle"), "the picked look is saved");
     checkAccessibility(body, "bots");
     // chat
     await buttonByText(body, "Chat").fire("click");

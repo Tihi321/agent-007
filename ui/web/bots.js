@@ -1,12 +1,13 @@
 // Bots: the list of cards and the editor (S35). The model badge and the one-line egress note come from the server, so the editor never
 // guesses what leaves the PC. A user can only pick presets and tools their account allows (the options call), and the form has no field
 // for folders, peers or tokens: those are fixed by the system.
-import { clear, field, h } from "./dom.js";
+import { clear, field, h, icon } from "./dom.js";
 
-const AVATAR_LABEL = { robot: "Robot", fox: "Fox", owl: "Owl", cat: "Cat", planet: "Planet", leaf: "Leaf", bolt: "Bolt", book: "Book" };
+// The ids are stored on bots and never change; the labels name the look (shape and colour, WR5/D7).
+const AVATAR_LABEL = { robot: "Indigo square", fox: "Orange droplet", owl: "Violet circle", cat: "Pink triangle", planet: "Sky circle", leaf: "Green blob", bolt: "Red pill", book: "Teal square" };
 
-export function avatarEl(name) {
-  return h("span", { class: `avatar av-md av-${name} avatar-${name}`, role: "img", "aria-label": AVATAR_LABEL[name] || "Avatar" }, (AVATAR_LABEL[name] || "?").slice(0, 1));
+export function avatarEl(name, size = "md") {
+  return h("span", { class: `avatar av-${size} av-${name} avatar-${name}`, role: "img", "aria-label": AVATAR_LABEL[name] || "Avatar" });
 }
 
 export function badgeEl(bot) {
@@ -25,25 +26,30 @@ const presetText = (p) => `${p.label}${p.paid ? " (paid)" : p.cloud ? " (cloud)"
 export async function renderBots(ctx) {
   const r = await ctx.api.call("/api/bots/list", {});
   const bots = r.ok ? r.data.bots : [];
+  const newBot = () => ctx.go("#/bot/new");
   return h(
     "section",
-    { "aria-labelledby": "bots-title" },
-    h("div", { class: "row" }, h("h1", { id: "bots-title" }, "Your bots"), h("button", { class: "btn btn-primary", type: "button", onclick: () => ctx.go("#/bot/new") }, "New bot")),
-    bots.length === 0 ? h("p", { class: "muted" }, "No bots yet. Create one to start chatting.") : null,
-    h(
-      "ul",
-      { class: "cards", role: "list" },
-      bots.map((b) =>
-        h(
-          "li",
-          { class: "card bot-card" },
-          h("div", { class: "row" }, avatarEl(b.avatar), h("div", {}, h("strong", {}, b.name), h("div", { class: "muted small" }, b.tagline || ""))),
-          h("div", {}, badgeEl(b)),
-          paidLines(b.paid),
-          h("div", { class: "row" }, h("button", { class: "btn btn-primary", type: "button", onclick: () => ctx.go(`#/chat/${b.id}`) }, "Chat"), h("button", { class: "btn", type: "button", onclick: () => ctx.go(`#/bot/${b.id}`) }, "Edit")),
+    { class: "gallery", "aria-labelledby": "bots-title" },
+    h("div", { class: "row" }, h("h1", { id: "bots-title" }, "Your bots"), h("button", { class: "btn btn-primary", type: "button", onclick: newBot }, icon("plus"), "New bot")),
+    bots.length === 0
+      ? h("div", { class: "empty" }, h("strong", {}, "Create your first bot"), h("p", {}, "No bots yet. Create one to start chatting."), h("button", { class: "btn btn-primary", type: "button", onclick: newBot }, "New bot"))
+      : h(
+          "ul",
+          { class: "cards botgrid", role: "list" },
+          h("li", {}, h("button", { class: "botcard botcard-new", type: "button", onclick: newBot }, icon("plus"), h("span", {}, "New bot"))),
+          bots.map((b) =>
+            h(
+              "li",
+              { class: "card botcard" },
+              avatarEl(b.avatar, "lg"),
+              h("strong", { class: "botcard-name" }, b.name),
+              h("div", { class: "muted small" }, b.tagline || ""),
+              h("div", {}, badgeEl(b)),
+              paidLines(b.paid),
+              h("div", { class: "botcard-actions" }, h("button", { class: "btn btn-primary", type: "button", onclick: () => ctx.go(`#/chat/${b.id}`) }, "Chat"), h("button", { class: "btn", type: "button", onclick: () => ctx.go(`#/bot/${b.id}`) }, "Edit")),
+            ),
+          ),
         ),
-      ),
-    ),
   );
 }
 
@@ -58,8 +64,22 @@ export async function renderBotEditor(ctx, botId) {
   }
   const e = h("div", { role: "alert" });
   const name = h("input", { type: "text", name: "name", maxlength: "40", value: bot.name, required: true });
+  name.addEventListener("input", () => (previewName.textContent = name.value.trim() || "Your bot"));
   const tagline = h("input", { type: "text", name: "tagline", maxlength: "80", value: bot.tagline });
-  const avatar = h("select", { name: "avatar" }, o.avatars.map((a) => h("option", { value: a, selected: a === bot.avatar }, AVATAR_LABEL[a] || a)));
+  // A native radio group (arrow keys work). Each radio sits in its label; the label text is the look name. The face is decorative.
+  let look = bot.avatar;
+  const preview = h("span", { class: `avatar av-lg av-${look}`, "aria-hidden": "true" });
+  const previewName = h("strong", {}, bot.name || "Your bot");
+  const picks = o.avatars.map((a, i) => {
+    const id = `look-${i}`;
+    const radio = h("input", { type: "radio", name: "avatar", value: a, id, checked: a === look });
+    radio.addEventListener("change", () => {
+      if (!radio.checked) return;
+      look = a;
+      preview.className = `avatar av-lg av-${a}`;
+    });
+    return h("label", { class: "look", for: id }, radio, h("span", { class: `avatar av-md av-${a}`, "aria-hidden": "true" }), h("span", { class: "look-name" }, AVATAR_LABEL[a] || a));
+  });
   const persona = h("textarea", { name: "persona", maxlength: "4000" });
   persona.value = bot.persona || "";
   const preset = h("select", { name: "preset" }, o.presets.map((p) => h("option", { value: p.id, selected: p.id === bot.preset }, presetText(p))));
@@ -81,17 +101,18 @@ export async function renderBotEditor(ctx, botId) {
   const memory = h("input", { type: "checkbox", name: "memory", checked: !!bot.memory });
   const starters = h("textarea", { name: "starters", maxlength: "700" });
   starters.value = (bot.starters || []).join("\n");
+  const footer = h("div", { class: "stickyfoot" }, h("button", { class: "btn btn-primary", type: "submit" }, "Save"), h("button", { class: "btn", type: "button", onclick: () => ctx.go("#/bots") }, "Cancel"));
   const form = h(
     "form",
     {
-      class: "card",
+      class: "editor",
       onsubmit: async (ev) => {
         ev.preventDefault();
         clear(e);
         const body = {
           name: name.value,
           tagline: tagline.value,
-          avatar: avatar.value,
+          avatar: look,
           persona: persona.value,
           preset: preset.value,
           cloudFallback: cloudFallback.value,
@@ -110,23 +131,24 @@ export async function renderBotEditor(ctx, botId) {
       },
     },
     h("h1", {}, botId ? "Edit bot" : "New bot"),
-    field("Name", name),
-    field("Tagline", tagline),
-    field("Avatar", avatar),
-    field("Persona", persona, "Written by you. It shapes tone and style only; it cannot give the bot new powers."),
-    field("Model", preset),
-    note,
-    field("Cloud fallback", cloudFallback, "Tried after the main model, before the local fallback. A paid route here also needs the owner's cap."),
-    botId ? paidLines(bot.paid) : null,
-    field("Local fallback", fallback, "Used once if the main model is not available. A fallback is always a local model."),
-    h("fieldset", {}, h("legend", {}, "Tools"), toolBoxes.map((x) => x.el)),
-    h("label", { class: "check" }, memory, h("span", {}, "Remember durable notes about me (this bot's own memory)")),
-    field("Starter prompts (one per line)", starters),
+    h("section", { class: "fsec" }, h("h2", {}, "Name and look"), h("div", { class: "preview" }, preview, previewName), field("Name", name), field("Tagline", tagline), h("fieldset", { class: "looks" }, h("legend", {}, "Avatar"), h("div", { class: "lookgrid" }, picks))),
+    h("section", { class: "fsec" }, h("h2", {}, "Role"), field("Persona", persona, "Written by you. It shapes tone and style only; it cannot give the bot new powers."), field("Starter prompts (one per line)", starters)),
+    h(
+      "section",
+      { class: "fsec" },
+      h("h2", {}, "Model"),
+      field("Model", preset),
+      note,
+      field("Cloud fallback", cloudFallback, "Tried after the main model, before the local fallback. A paid route here also needs the owner's cap."),
+      botId ? paidLines(bot.paid) : null,
+      field("Local fallback", fallback, "Used once if the main model is not available. A fallback is always a local model."),
+    ),
+    h("section", { class: "fsec" }, h("h2", {}, "Tools and memory"), h("fieldset", {}, h("legend", {}, "Tools"), toolBoxes.map((x) => x.el)), h("label", { class: "check" }, memory, h("span", {}, "Remember durable notes about me (this bot's own memory)"))),
     e,
-    h("div", { class: "row" }, h("button", { class: "btn btn-primary", type: "submit" }, "Save"), h("button", { class: "btn", type: "button", onclick: () => ctx.go("#/bots") }, "Cancel")),
+    footer,
   );
   if (botId) {
-    form.append(
+    footer.append(
       h(
         "button",
         {

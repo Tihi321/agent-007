@@ -321,6 +321,8 @@ Order: WR1, then WR2 and WR6 in parallel, then WR3, WR4 and WR5 in parallel, the
 - **Done:** pin, rename, export and delete work from the pane in a manual check (WU).
 
 ### WR5 Bot gallery and editor
+- **Status: DONE.** Evidence: `yarn build` ok; full run 1598 tests, 1597 pass, 0 fail, 1 skipped; ui.test.js 9/9. The journey test now picks the "owl" radio (fires `change`), checks the radio sits in a label "Violet circle", and checks the saved bot shows the "Violet circle" avatar. UI total is now 134.6 KB, so the budget test was raised to 160 KB in this commit (D9; per-file stays 30 KB). UNTESTED (no browser): all layout and CSS, arrow-key movement in the radio group, the live preview, the sticky footer, the dashed tile.
+- **Deviations:** (1) `avatarEl(name, size = "md")` no longer renders a letter inside the avatar (the CSS hid it anyway); aria-labels are the look names. (2) The picker radios have ids and `for` labels as well as sitting inside the label (the a11y check needs it); the saved avatar comes from a `look` variable set on `change`, not from a select. (3) The empty state keeps the sentence "No bots yet. Create one to start chatting." under the heading "Create your first bot", because the journey test asserts it. (4) Labels: robot Indigo square, fox Orange droplet, owl Violet circle, cat Pink triangle, planet Sky circle, leaf Green blob, bolt Red pill, book Teal square.
 - **Inputs:** §3.3 (gallery, editor, avatars D7).
 - **Outputs:** `bots.js` `renderBots` (gallery) and `renderBotEditor` (sections, radio picker, preview).
 - **Contracts:**
