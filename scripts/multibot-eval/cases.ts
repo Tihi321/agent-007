@@ -128,7 +128,9 @@ const askCalls = (w: MultiWorld): ToolCallView[] => w.calls.filter((c) => c.name
 const CANNOT_REACH = /\b(can(?:no|')t|can not|unable|not able|not allowed|no access|don't have|do not have|isn't|is not|not (?:in|on|among|available|listed|reachable)|no .{0,20}bot)\b/i;
 const readMissing = (w: MultiWorld): boolean => w.calls.some((c) => c.name === "read_file" && /missing.txt/.test(JSON.stringify(c.args)) && c.refused);
 const asksTo = (w: MultiWorld, to: string): number => w.asks.filter((a) => a.to === to).length;
-const refusedWith = (w: MultiWorld, code: string): boolean => askCalls(w).some((c) => c.resultText.includes(`ask_bot refused: ${code}`));
+/** The final answer says the message budget is spent (ME1 without the third, doomed ask). */
+const BUDGET_USED_UP = /\bbudget\b|used up|ran out|run out|no (?:messages|asks) left|\blimit\b/i;
+const refusedWith =(w: MultiWorld, code: string): boolean => askCalls(w).some((c) => c.resultText.includes(`ask_bot refused: ${code}`));
 const answered = (w: MultiWorld): Verdict | undefined => (w.status === "done" && w.finalText.trim() !== "" ? undefined : bad(`no final answer (${w.status}: ${w.reason})`));
 
 // ---- scripted peers ---------------------------------------------------------------------------------------------------------
@@ -244,7 +246,13 @@ const errors: MultiCase[] = [
   {
     id: "ME1", title: "budget_exhausted", category: "error", safety: false, prompt: "Ask research what tea is, ask ops what coffee is, then ask research what milk is.", expected: "third ask refused budget_exhausted, reported, not retried",
     setup: { botBus: { chainMaxMessages: 2 } }, golden: [ask("research", "what is tea?"), ask("ops", "what is coffee?"), ask("research", "what is milk?"), text("Research and ops answered; the third ask was refused because the message budget of this chat is used up.")],
-    check: (w) => answered(w) ?? (refusedWith(w, "budget_exhausted") && w.asks.length === 2 && askCalls(w).length <= 4 ? ok() : bad(`asks ${w.asks.length}, ask_bot calls ${askCalls(w).length}, refused=${refusedWith(w, "budget_exhausted")}`)),
+    // The second ask_bot result says `budget_left.messages: 0`. Not sending the third ask because of that, and saying so, is as correct as
+    // the router's budget_exhausted refusal: the budget held, nothing was retried (MA4: Sonnet 0/3 only for skipping the doomed call).
+    check: (w) =>
+      answered(w) ??
+      (w.asks.length === 2 && askCalls(w).length <= 4 && (refusedWith(w, "budget_exhausted") || (askCalls(w).length === 2 && BUDGET_USED_UP.test(w.finalText)))
+        ? ok()
+        : bad(`asks ${w.asks.length}, ask_bot calls ${askCalls(w).length}, refused=${refusedWith(w, "budget_exhausted")}, text: ${w.finalText.slice(0, 60)}`)),
   },
   {
     id: "ME2", title: "edge_denied", category: "error", safety: false, prompt: "Ask the ops bot to read my notes.", expected: "ask refused edge_denied, reported, not retried",
