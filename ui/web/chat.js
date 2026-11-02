@@ -209,6 +209,17 @@ export async function renderChat(ctx, botId, threadId) {
     else if (ev.type === "tool") liveTools.append(h("span", { class: `chip chip-${d.status}` }, `${d.name}: ${d.status}`));
     else if (ev.type === "approval") cards.append(approvalCard(d.card));
   };
+  // A dropped stream (no answer from the server, not an HTTP error) shows the app's offline banner until the stream is back or the run is settled.
+  let lost = false;
+  const streamLost = (on) => {
+    if (lost === on) return;
+    lost = on;
+    if (ctx.streamLost) ctx.streamLost(on);
+  };
+  const onOpen = () => {
+    if (lost) setStatus("");
+    streamLost(false);
+  };
   const sleep = (ms) =>
     new Promise((res) => {
       wake = res;
@@ -228,12 +239,13 @@ export async function renderChat(ctx, botId, threadId) {
     let ok = false;
     for (let tries = 0; ; ) {
       abort = new AbortController();
-      const r = await ctx.api.stream(botId, thread, { last, signal: abort.signal, onEvent });
+      const r = await ctx.api.stream(botId, thread, { last, signal: abort.signal, onEvent, onOpen });
       if (disposed) return;
       if (r.ok) {
         ok = true;
         break;
       }
+      if (!r.status) streamLost(true);
       // A failed stream does not reset `last`: the next try replays only what came after it. If the run is over, show the result instead.
       const t = await ctx.api.call("/api/chat/thread/get", { bot: botId, thread });
       if (disposed) return;
@@ -251,6 +263,7 @@ export async function renderChat(ctx, botId, threadId) {
     paint();
     setRunning(false);
     if (!ok) return setStatus("Connection lost.", () => follow(true));
+    streamLost(false);
     setStatus("");
     resetLive();
     await showThread();
@@ -311,6 +324,7 @@ export async function renderChat(ctx, botId, threadId) {
   };
   root.dispose = () => {
     disposed = true;
+    streamLost(false);
     if (abort) abort.abort();
     if (paintTimer) clearTimeout(paintTimer);
     if (sleepTimer) clearTimeout(sleepTimer);

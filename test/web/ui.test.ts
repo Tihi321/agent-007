@@ -312,13 +312,16 @@ test("WA5: a dropped stream resumes from the last event id with no duplicated or
       if (path === "/api/chat/usage") return { ok: true, status: 200, data: { maxTokensPerDay: 10, tokensToday: 1, chatsToday: 1, maxChatsPerDay: 5, paid: [] } };
       return { ok: true, status: 200, data: { threads: [] } };
     },
-    async stream(_b: string, _t: string, o: { last: number; onEvent: (e: unknown) => void }) {
+    async stream(_b: string, _t: string, o: { last: number; onEvent: (e: unknown) => void; onOpen: () => void }) {
       lasts.push(o.last);
       if (lasts.length === 1) {
         events.slice(0, 2).forEach((e) => o.onEvent(e));
         await new Promise((r) => setTimeout(r, 150)); // a live paint while the fence is still open
-        return { ok: false }; // the connection drops mid-answer
+        return { ok: false, status: 0 }; // the connection drops mid-answer
       }
+      assert.deepEqual(banner, [true], "the dropped stream shows the offline banner");
+      o.onOpen();
+      assert.deepEqual(banner, [true, false], "the banner goes when the stream is back");
       await until(() => root !== undefined);
       for (const e of events.filter((x) => x.id > o.last)) {
         o.onEvent(e);
@@ -330,11 +333,13 @@ test("WA5: a dropped stream resumes from the last event id with no duplicated or
       return { ok: true };
     },
   };
-  const ctx = { api, resumeDelays: [1, 1, 1], refreshBots: async () => {}, openDetails() {}, closeDetails() {}, detailsOpen: () => false, go() {}, replace() {}, confirm: () => true, prompt: () => "", download() {} };
+  const banner: boolean[] = [];
+  const ctx = { api, resumeDelays: [1, 1, 1], streamLost: (on: boolean) => banner.push(on), refreshBots: async () => {}, openDetails() {}, closeDetails() {}, detailsOpen: () => false, go() {}, replace() {}, confirm: () => true, prompt: () => "", download() {} };
   root = (await renderChat(ctx, "b", "t1")) as FElement;
   const finalBubbles = () => all(root!).filter((e) => e.tagName === "article" && e.className.startsWith("msg msg-assistant"));
   await until(() => finalBubbles().length === 1);
   assert.deepEqual(lasts, [0, 2], "the second call carried the last event id");
+  assert.deepEqual(banner, [true, false]);
   assert.equal(finalBubbles()[0]!.textContent.replace(/Regenerate/g, ""), renderMarkdown(full).textContent);
 });
 

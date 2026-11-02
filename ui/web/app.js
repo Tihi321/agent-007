@@ -20,13 +20,15 @@ export function start(env) {
   let retryTimer = null;
   let retryStep = 0;
   const api = createApi({ fetch: env.fetch, onUnauthorized: () => ctx.signedOut() });
-  // Every answer passes here: status 0 (no connection) shows the offline banner; the next answer from the server clears it.
+  // Every answer passes here: status 0 (no connection) shows the offline banner; the next answer from the server clears it. A dropped
+  // answer stream shows it too (ctx.streamLost), and then only the chat view clears it: when the stream is back or the run is settled.
+  let streamDown = false;
   for (const verb of ["call", "get"]) {
     const raw = api[verb];
     api[verb] = async (...a) => {
       const r = await raw.apply(api, a);
       if (r.status === 0) goOffline();
-      else if (offline.childNodes.length > 0) goOnline();
+      else if (offline.childNodes.length > 0 && !streamDown) goOnline();
       return r;
     };
   }
@@ -92,6 +94,12 @@ export function start(env) {
       drawShell();
     },
     refreshBots: () => (sidebar ? sidebar.refresh() : Promise.resolve()),
+    streamLost: (on) => {
+      if (on === streamDown) return;
+      streamDown = on;
+      if (on) goOffline();
+      else goOnline();
+    },
     openDetails: (el) => {
       detailsOpen = true;
       details.hidden = false;
