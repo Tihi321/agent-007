@@ -57,12 +57,19 @@ export function personaCardLines(p: Persona, current: boolean): string[] {
   ];
 }
 
+/** A model draft may leave `modelPreset` out (the model cannot see the preset ids): it then gets the ceiling's default preset. */
+function withDefaultPreset(draft: unknown, preset: string): unknown {
+  if (typeof draft !== "object" || draft === null || Array.isArray(draft)) return draft;
+  const d = draft as Record<string, unknown>;
+  return d["modelPreset"] === undefined || d["modelPreset"] === "" ? { ...d, modelPreset: preset } : d;
+}
+
 export function createPersonaKind(deps: PersonaKindDeps): KindHandler {
   const fileOf = (id: string): string => join(deps.store.modelDir, `${id}.json`);
 
   /** Parses and checks a draft; every refusal is a typed `SettingsError`. */
   const check = (draft: unknown): Persona => {
-    const parsed = parsePersona(draft);
+    const parsed = parsePersona(withDefaultPreset(draft, deps.ceiling().defaultPreset));
     if (!parsed.persona) throw new SettingsError("invalid_value", `the persona draft is not valid: ${parsed.issues.slice(0, 4).join("; ")}`);
     const p = parsed.persona;
     if (!PERSONA_ID_PATTERN.test(p.id) || BUILTIN_PERSONA_IDS.includes(p.id)) throw new SettingsError("persona_invalid", `the id "${p.id}" is a built-in persona id`);

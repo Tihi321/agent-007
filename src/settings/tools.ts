@@ -43,7 +43,7 @@ export const proposePersonaParameters = Type.Object({
     toolAllow: Type.Array(Type.String({ maxLength: 64 }), { maxItems: 60, description: "Tool names this persona may use. It can only narrow what is already allowed." }),
     mcpAllow: Type.Array(Type.Object({ server: Type.String({ maxLength: 32 }), tools: Type.Array(Type.String({ maxLength: 100 }), { maxItems: 100 }) }), { maxItems: 30 }),
     jobTemplates: Type.Array(Type.String({ maxLength: 64 }), { maxItems: 50 }),
-    modelPreset: Type.String({ maxLength: 24 }),
+    modelPreset: Type.Optional(Type.String({ maxLength: 24, description: "Leave it out to use the default model preset. Set it only to a preset id the user named." })),
     memory: Type.Object({
       write: Type.Enum(["shared", "scope", "none"]),
       scope: Type.Optional(Type.String({ maxLength: 24 })),
@@ -187,7 +187,7 @@ export function createSettingsTools(deps: SettingsToolsDeps): ToolRegistration[]
           toolAllow: d.toolAllow,
           mcpAllow: Object.fromEntries(d.mcpAllow.map((m) => [m.server, m.tools])),
           jobTemplates: d.jobTemplates,
-          modelPreset: d.modelPreset,
+          ...(d.modelPreset !== undefined && d.modelPreset !== "" ? { modelPreset: d.modelPreset } : {}),
           memory: { write: d.memory.write, sharedRead: d.memory.sharedRead, ...(d.memory.scope !== undefined ? { scope: d.memory.scope } : {}) },
           budgets: d.maxJobsPerDay !== undefined ? { maxJobsPerDay: d.maxJobsPerDay } : {},
         };

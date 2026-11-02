@@ -82,7 +82,7 @@ export function validateAgainstCeiling(p: Persona, c: Ceiling, known: readonly s
     for (const t of tools) if (!allowed.includes(t)) reasons.push(`MCP tool "${server}/${t}" is not allowed on that server`);
   }
   for (const t of p.jobTemplates) if (!c.jobTemplates.includes(t)) reasons.push(`job template "${t}" is not available`);
-  if (!c.presets.includes(p.modelPreset)) reasons.push(`model preset "${p.modelPreset}" is not one of the security presets`);
+  if (!c.presets.includes(p.modelPreset)) reasons.push(`model preset "${p.modelPreset}" is not one of the security presets (${c.presets.join(", ")})`);
   if (p.memory.write === "shared" && !c.sharedMemoryWrite) reasons.push("shared memory writes are not allowed");
   if (p.memory.write === "scope" && !PERSONA_ID_PATTERN.test(p.memory.scope ?? p.id)) reasons.push("memory scope is not a valid name");
   const mj = p.budgets.maxJobsPerDay;
