@@ -60,9 +60,21 @@ test("safe Markdown: HTML stays text, javascript: links are not links, images ne
   assert.deepEqual(b.map((x: any) => x.t), ["h", "ul", "ol", "pre", "quote"]);
   assert.equal(b[3].v, "let a = '<b>';");
   assert.equal(b[1].items.length, 2);
+  const r = parseMarkdown("```c++ extra\nx\n```\n\n| A | B |\n|---|:-:|\n| [bad](javascript:alert(1)) | **ok** |\n| 1 |\n\n---\n\n- [ ] todo\n  - nested\n\n```py\nunclosed <b>");
+  assert.deepEqual(r.map((x: any) => x.t), ["pre", "table", "hr", "ul", "pre"]);
+  assert.equal(r[0].lang, "c");
+  assert.equal(r[4].lang, "py");
+  assert.equal(r[4].v, "unclosed <b>", "an unclosed fence is code to the end");
+  assert.equal(r[1].head.length, 2);
+  assert.equal(r[1].rows.length, 2);
+  assert.equal(r[1].rows[1].length, 2, "short rows are padded");
+  assert.ok(!flat(r[1]).includes('"t":"link"'), "javascript: in a cell is not a link");
+  assert.equal(r[1].rows[0][1][0].t, "strong");
+  assert.equal(r[3].items.length, 2, "nested items stay one level");
   // pathological input is linear, not catastrophic
   const t0 = Date.now();
   parseMarkdown("*".repeat(20000) + "[".repeat(20000) + "`".repeat(20000));
+  parseMarkdown("|".repeat(20000) + "\n" + "|-".repeat(10000) + "\n" + "|".repeat(20000));
   assert.ok(Date.now() - t0 < 2000);
 });
 

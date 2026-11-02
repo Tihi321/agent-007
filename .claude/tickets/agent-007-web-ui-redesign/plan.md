@@ -327,6 +327,7 @@ Order: WR1, then WR2 and WR6 in parallel, then WR3, WR4 and WR5 in parallel, the
 - **Done:** the journey test creates a bot by picking an avatar radio.
 
 ### WR6 Markdown
+- **Status: DONE.** Evidence: `yarn build` ok; full run 1595 pass, 1 fail (redteam T8 flake; passes alone 15/15), 1 skipped; ui.test.js 8/8 with the extended safe-Markdown test (lang, unclosed fence, table, hr, javascript: in a cell, 20,000 `|` linear). CSS added to app.css (no new file); UI total 117.8 KB, budget unchanged. Copy button is only created when `navigator.clipboard.writeText` exists. Copy click and the rendered DOM are UNTESTED (parser only is tested).
 - **Inputs:** §3.4.
 - **Outputs:** the parser and builder changes.
 - **Contracts:**
