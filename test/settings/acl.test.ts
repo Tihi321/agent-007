@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { test } from "node:test";
+import { startAgent } from "../../src/agent/harness.js";
+import { setupPersonal } from "../../src/setup/personal.js";
 import { SettingsAclError, aclProblems, assertSettingsAcl, checkSettingsAcl } from "../../src/settings/acl.js";
 import { parseIcacls } from "../../src/config/secrets.js";
 import { settingsPaths } from "../../src/settings/store.js";
@@ -82,6 +87,29 @@ test("the audit files: write-data, delete or re-ACL for the agent is refused; th
   l = good();
   l[paths.auditDir] = [...BASE, `HOST\\${AGENT}:(CI)(R,WD,WDAC)`];
   assert.match(check(l).join("\n"), /audit folder.*WDAC/);
+});
+
+test("personal mode: a writable security.json does not refuse start, a secrets file readable by Users still does", async () => {
+  const root = mkdtempSync(join(tmpdir(), "agent007-personal-acl-"));
+  mkdirSync(join(root, "Documents")); // the allowed folder of the setup must exist
+  const set = setupPersonal({ root, resourcesDir: process.cwd(), home: root, icacls: () => undefined });
+  const secretsOut = (users: boolean): string => out(set.secretsPath, [...BASE, "HOST\\me:(F)", ...(users ? ["BUILTIN\\Users:(R)"] : [])]);
+  // every settings path shows the agent user (= the owner) with full control: the layout the settings check refuses
+  const fake = (users: boolean) => (p: string): string => (p === set.secretsPath ? secretsOut(users) : out(p, [...BASE, "HOST\\me:(F)"]));
+  const start = (personal: boolean, users: boolean) =>
+    startAgent({
+      configPath: set.configPath,
+      secretsPath: set.secretsPath,
+      telegram: false,
+      personal,
+      env: { localAppData: join(root, "local"), programData: root, mainUserProfile: root },
+      healthIntervalMs: 3_600_000,
+      phase3: { agentUser: "me", icacls: fake(users) },
+    });
+  await assert.rejects(start(false, false), SettingsAclError);
+  await assert.rejects(start(true, true), /accessible to .*Users/);
+  const agent = await start(true, false);
+  await agent.stop();
 });
 
 test("an unreadable ACL is a problem, and a Deny entry is not a grant", () => {

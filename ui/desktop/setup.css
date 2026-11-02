@@ -1,0 +1,35 @@
+/* Launcher page. The shared tokens (tokens.css, copied next to this file) give the colours and sizes. */
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: var(--fs-md) / 1.45 var(--font); }
+.wrap { max-width: 640px; margin: 0 auto; padding: var(--space-5); }
+h1 { font-size: var(--fs-xl); margin: 0 0 var(--space-3); }
+h2 { font-size: var(--fs-lg); margin: 0 0 var(--space-3); }
+.muted { color: var(--muted); }
+.small { font-size: var(--fs-sm); }
+code { font-family: var(--mono); font-size: var(--fs-sm); word-break: break-all; }
+.card { border: 1px solid var(--border); border-radius: var(--radius); background: var(--panel); padding: var(--space-4); margin: var(--space-4) 0; }
+.card.notice { background: var(--warn-soft); color: var(--warn); }
+.card.claim { background: var(--accent-soft); }
+.field { margin: var(--space-3) 0; display: flex; flex-direction: column; gap: var(--space-1); }
+.field label { font-size: var(--fs-sm); font-weight: 600; }
+input[type="password"], input[type="text"] { padding: var(--space-2) var(--space-3); border: 1px solid var(--border); border-radius: var(--space-2); background: var(--bg); color: var(--text); font: inherit; }
+input:focus-visible, button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.check { display: flex; gap: var(--space-2); align-items: center; margin: var(--space-2) 0; }
+.row { display: flex; gap: var(--space-2); flex-wrap: wrap; margin-top: var(--space-3); }
+.btn { padding: var(--space-2) var(--space-4); border: 1px solid var(--border); border-radius: var(--radius-pill); background: var(--panel-2); color: var(--text); font: inherit; cursor: pointer; }
+.btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); }
+.btn:disabled { opacity: 0.5; cursor: default; }
+.banner { padding: var(--space-3); border-radius: var(--space-2); }
+.banner.error { background: var(--danger-soft); color: var(--danger); }
+.code { display: block; font-size: var(--fs-xl); letter-spacing: 0.04em; user-select: all; }
+.services { list-style: none; margin: 0; padding: 0; }
+.services li { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; border-bottom: 1px solid var(--border); }
+.services .name { flex: 1; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; }
+.dot.running { background: var(--ok); }
+.dot.starting { background: var(--warn); }
+.dot.error { background: var(--danger); }
+.badge { font-size: var(--fs-xs); color: var(--muted); font-weight: 400; margin-left: var(--space-2); }
+.ok { color: var(--ok); }
+.bad { color: var(--danger); }
+summary { cursor: pointer; font-weight: 600; }

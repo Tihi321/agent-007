@@ -85,5 +85,5 @@ export function samePath(a: string, b: string): boolean {
 
 /** The one-line message for a missing config file (instead of a raw ENOENT); undefined when the file exists. */
 export function missingConfigMessage(configPath: string, exists: (p: string) => boolean = existsSync): string | undefined {
-  return exists(configPath) ? undefined : `config file not found: ${configPath}. Run \`yarn setup:local\` for a dev setup, or deploy with deploy/deploy-app.ps1`;
+  return exists(configPath) ? undefined : `config file not found: ${configPath}. Run \`yarn setup:local\` for a dev setup, start agent-007 from the Start menu (desktop app), or deploy with deploy/deploy-app.ps1`;
 }

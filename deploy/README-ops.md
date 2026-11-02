@@ -97,6 +97,7 @@ agent user's ACEs there.
 - **ProgramData root.** The scripts do not change the ACL of `C:\ProgramData\agent-007\` itself; `check-acl.ps1` reports
   ambient `Users` rights on it and on drive roots. Review them.
 - **Edit `config.json`** only from an elevated shell: the agent user has read-only access to it.
+- **Desktop app.** The Windows desktop app (`README.md`, "Desktop app (Windows)") is personal mode: it runs the gateway, the agent and the job runner as the signed-in user, with `--personal` and no separation of settings or jobs. It must not run beside this install's scheduled tasks on one PC (same ports 47007, 47008 and 47009, and possibly the same Telegram token). Stop the tasks first, or do not use the app.
 
 ## Extra bots (Phase 4, S20)
 

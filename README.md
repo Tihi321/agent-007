@@ -36,6 +36,73 @@ Fill the `CHANGE-ME` values in `.local/secrets/secrets.json` (the ACP proxy key 
 asks for one). The Claude presets stay refused until you set `termsAccepted.claude` to `true` in `.local/settings/security.json`.
 `yarn start:local` runs the Telegram agent the same way (needs a real bot token and your Telegram id).
 
+## Desktop app (Windows)
+
+A tray app for one person on one PC. It replaces `yarn setup:local` plus `yarn web:local` and needs no Node, no repo and no admin rights. It is
+**personal mode**, not the hardened install below: see "Personal mode versus the hardened install".
+
+**Build it** (in a worktree or a clean checkout, not next to a running gateway): `yarn dist` builds the installer and the portable exe into `release\`
+(`agent-007-Setup-<version>-x64.exe` and `agent-007-Portable-<version>-x64.exe`) and then runs `scripts/desktop/verify-package.mjs`.
+`yarn dist:installer`, `yarn dist:portable` and `yarn dist:dir` build one target or just `release\win-unpacked`. The build downloads Electron and the
+NSIS tools from GitHub (through electron-builder) and the production packages from the npm registry. It bundles the official `node.exe` of the Node
+that runs the build (it refuses unless that file is signed by the OpenJS Foundation and the version fits `engines`). The services run on that
+`node.exe`, not on Electron.
+
+**Install.** Run the Setup exe: per-user, no admin, default folder `%LOCALAPPDATA%\Programs\agent-007`, a Start menu entry and a desktop shortcut. The
+binaries are not code signed, so Windows SmartScreen shows "Windows protected your PC": click "More info", then "Run anyway". Antivirus tools may also
+complain about an unsigned `node.exe` and Electron.
+
+**First run.** The setup window asks for:
+- the data folder: `%LOCALAPPDATA%\agent-007` by default, or "Use an existing folder..." (for example the repo `.local`). A picked folder that already
+  holds `config\config.json` is used as is: nothing in it is overwritten and the secrets ACL check still decides whether the gateway starts. The choice is
+  remembered in `%LOCALAPPDATA%\agent-007\root.json`. `AGENT007_HOME` overrides both;
+- the ACP proxy key (optional, kept in the secrets file and never shown again), the checkbox "I accept the Claude consumer terms" (needed for the Claude
+  presets), and an optional Telegram bot token and your Telegram user id.
+
+It creates `config\`, `settings\`, `secrets\`, `data\` and `logs\` under the data folder. The secrets file gets a restricted ACL (you, SYSTEM and
+Administrators) before anything is written to it. Nothing is written to ProgramData or the install folder.
+
+**Claim.** When the gateway is up and has no owner yet, the window shows a one-time claim code with "Copy" and "Open claim page" (`http://localhost:47009/claim`).
+The code appears only in that window. "Show claim code" in the tray menu makes a new one. After the claim, the next starts open `http://localhost:47009`
+(not when the app was started with `--hidden`, as launch at login does).
+
+**What runs.** Three services, shown in the tray menu with a status line each, with Start, Stop, Restart and, after an error, Retry:
+- **Gateway** (`--mode local`, 127.0.0.1:47009). Always on. If the port is taken the menu says "Port 47009 in use" and offers Retry. If another agent-007
+  gateway already runs there, it says so and offers "Open the running gateway".
+- **Telegram agent** (`src/main.ts --personal`). Off by default. The launcher refuses to start it while the bot token or user id is still a placeholder.
+- **Job runner** (ports 47007 and 47008). Off by default. See the warning below. While it runs the menu shows "Job runner on (not isolated)" and "Open settings UI".
+
+The tray menu also has "Open agent-007", "Show claim code", "Settings...", "Open logs folder", "Open data folder", "Launch at login" (off by default) and
+"Quit". Quit stops every service (each gets a graceful stop first, then a forced one) within 15 seconds. The settings page has the same switches, the
+keys and Telegram fields, and the data folder buttons. Logs: `<data folder>\logs\launcher.log` for the launcher, and one log per service in the same folder.
+
+**Job runner warning.** In personal mode the agent runs as you. Jobs it starts are not isolated from your account (I17 is gone), and the agent can in
+principle change the settings the job runner trusts, because its shell tool and the job runner's settings UI run as the same user (I25 then rests on the
+path policy only). Turning the switch on shows this warning every time and Cancel leaves it off. Turn it on only if you accept that; otherwise use the
+hardened install.
+
+**Installer versus portable.**
+- Update: run a newer Setup over the old one (the installer), or replace the portable exe by hand. Data is never inside the install folder, so it is kept.
+- The portable exe is one file that unpacks about 200 MB to a temp folder on every start, so the start is slower. Nothing is written next to it. It has no
+  uninstaller: delete the exe (and the data folder if you want to wipe it).
+- Both use the same data folder, so you can switch between them. Run only one at a time (single-instance lock and port 47009).
+- Launch at login with the portable exe registers the path of the real exe (not the temp copy). If you move the exe, the entry breaks: turn the
+  switch off and on again.
+- Uninstalling the installer keeps `%LOCALAPPDATA%\agent-007`. Delete that folder by hand to wipe everything.
+
+**Personal mode versus the hardened install.** The hardened install (below) runs as a separate low-privilege `agent007` user with scheduled tasks and
+locked-down ACLs. The desktop app runs as you. What stays: the gateway listens on loopback only and always runs with `--mode local`, the secrets ACL check
+stays on (the launcher never passes `--skip-acl-check`), `web.key` sealing and the one-time owner claim. What changes:
+- The settings-ACL check cannot pass with one Windows user, so the agent is started with `--personal`, which skips only that check and logs
+  `settings.acl_personal_mode` once.
+- I25 is weaker: the agent's shell tool runs as you, so the path policy is the only barrier to it writing `security.json`. Never add the data folder to
+  `folders.allow`.
+- The app does not replace, migrate or coexist with the hardened install on one PC; do not run both. Tailnet mode stays a command-line feature.
+
+**Manual install check** (the Electron glue has no unit tests): install, finish setup, claim, send a chat message, turn Telegram and then the job runner
+on and off, Quit and check in Task Manager that no `node.exe` from the install folder is left, start again (no setup window), try with port 47009 busy
+(for example `yarn web:local`), install over the old version, uninstall, then run the portable exe from another folder and check it uses the same data.
+
 ## Install
 
 The install is a set of elevated PowerShell scripts that create a low-privilege `agent007` user, lock down folders and

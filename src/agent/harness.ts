@@ -67,6 +67,11 @@ export interface StartOptions {
   secretsPath: string;
   /** Run the `icacls` checks on the secrets file and the Strata config copy. Default true; false only for dev runs and tests. */
   checkAcl?: boolean;
+  /**
+   * Personal mode (the desktop app, one Windows user): skips ONLY the settings-ACL check (at start and the hourly one), which cannot pass
+   * when the agent runs as the owner. The secrets ACL check is unchanged. Logs `settings.acl_personal_mode` once.
+   */
+  personal?: boolean;
   /** false = a dry run: build everything, but never attach or start the Telegram bridge (no network). Default true. */
   telegram?: boolean;
   /** Test seams: a Bot whose HTTP layer is fake, and its `getMe` result. */
@@ -194,11 +199,12 @@ export async function startAgent(opts: StartOptions): Promise<AgentHandle> {
       runner: early.model.runner,
       ...(strataFile ? { strataConfigFile: strataFile } : {}),
       checkAcl: opts.checkAcl ?? true,
+      ...(opts.phase3?.icacls ? { icacls: opts.phase3.icacls } : {}), // one test seam for every icacls call of the start
     });
     const secrets: Secrets = loadedSecrets.secrets;
     const { config, warnings: configWarnings, settings: loadedSettings } = loadConfig({ configPath: opts.configPath, secrets, env });
     // Phase 3 (S17.2): a migrated install refuses to start when the settings folders are writable by the agent user.
-    if (loadedSettings.mode === "migrated" && (opts.checkAcl ?? true)) {
+    if (loadedSettings.mode === "migrated" && (opts.checkAcl ?? true) && !opts.personal) {
       assertSettingsAcl({ paths: loadedSettings.paths, agentUser: opts.phase3?.agentUser ?? process.env["USERNAME"] ?? homedir().split(/[\/]/).pop() ?? "agent007", ...(opts.phase3?.icacls ? { icacls: opts.phase3.icacls } : {}) });
     }
     const runner = selectRunner(config, secrets);
@@ -211,6 +217,7 @@ export async function startAgent(opts: StartOptions): Promise<AgentHandle> {
     logger = log;
     const audit = createAuditLog({ dir: config.paths.auditDir, redact });
     log.info("agent.starting", { runner: runner.runner, modelId: runner.provider.modelId, authMode: runner.authMode, pid: process.pid });
+    if (opts.personal) log.warn("settings.acl_personal_mode", { note: "the settings-ACL check is skipped (personal mode: the agent runs as the owner, so the path policy is the only barrier to security.json)" });
     for (const w of warnings) log.warn("config.warning", { warning: w });
     const budget = budgetProblem(runner.provider);
     if (budget) log.warn("config.budget", { problem: budget });
@@ -248,6 +255,7 @@ export async function startAgent(opts: StartOptions): Promise<AgentHandle> {
           health,
           runner,
           checkAcl: opts.checkAcl ?? true,
+          personal: opts.personal === true,
           seams: opts.multi,
           phase2: opts.phase2,
           phase3: opts.phase3,
@@ -348,6 +356,7 @@ export async function startAgent(opts: StartOptions): Promise<AgentHandle> {
       getHarness: () => harness,
       templates: p2.templates,
       checkAcl: opts.checkAcl ?? true,
+      personal: opts.personal === true,
       bridge: br,
       baseModel: { provider: runner.runner, modelId: runner.provider.modelId },
       runnerUp: async (name) => {

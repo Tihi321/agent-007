@@ -96,6 +96,8 @@ export interface Phase3Deps {
   templates: TemplateSource;
   /** Run the settings ACL checks (default true; dev runs and tests pass false). */
   checkAcl: boolean;
+  /** Personal mode: the hourly settings-ACL check does not run (the start check is skipped in `startAgent`). */
+  personal?: boolean;
   /** The Telegram bridge: the card transport, `/settings`, `/proposals`, `/applysettings` and the `/status` lines are attached to it. */
   bridge?: TelegramBridge | undefined;
   /** The model every conversation starts with (the active runner); personas switch to their preset's model from here. */
@@ -318,7 +320,7 @@ export async function createPhase3(deps: Phase3Deps): Promise<Phase3Handle> {
   };
   const agentUser = o.agentUser ?? (process.env["USERNAME"] ?? homedir().split(/[\\/]/).pop() ?? "agent007");
   const aclOk = (): boolean => {
-    if (!deps.checkAcl || settings.mode !== "migrated") return true;
+    if (!deps.checkAcl || deps.personal || settings.mode !== "migrated") return true;
     const problems = checkSettingsAcl({ paths: settings.paths, agentUser, ...(o.icacls ? { icacls: o.icacls } : {}) });
     if (problems.length > 0) {
       if (!frozen) log.error("settings.acl_violation", { problems });
@@ -388,7 +390,7 @@ export async function createPhase3(deps: Phase3Deps): Promise<Phase3Handle> {
       await engine.reap().catch((e) => log.warn("settings.reap_failed", { error: String((e as Error).message) }));
       timers.push(unref(setInterval(() => void engine.reap().catch(() => undefined), o.reapIntervalMs ?? 30_000)));
       timers.push(unref(setInterval(() => void refreshTemplates(), o.templateRefreshMs ?? 300_000)));
-      if (deps.checkAcl && settings.mode === "migrated") timers.push(unref(setInterval(() => void aclOk(), o.aclIntervalMs ?? 3_600_000)));
+      if (deps.checkAcl && !deps.personal && settings.mode === "migrated") timers.push(unref(setInterval(() => void aclOk(), o.aclIntervalMs ?? 3_600_000)));
     },
     async close() {
       for (const t of timers) clearInterval(t);

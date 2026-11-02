@@ -225,8 +225,20 @@ if (isEntry) {
   }
   runWeb(cli).then(
     (r) => {
-      const stop = (): void => void r.stop().then(() => process.exit(0));
+      let stopping = false; // the shutdown message and the disconnect can both fire
+      const stop = (): void => {
+        if (stopping) return;
+        stopping = true;
+        void r.stop().then(() => process.exit(0));
+      };
       for (const sig of ["SIGINT", "SIGTERM", "SIGBREAK"] as const) process.on(sig, stop);
+      // the desktop launcher starts this with an IPC channel: {type:"shutdown"} or the parent dying stops it gracefully
+      if (process.send) {
+        process.on("message", (m: unknown) => {
+          if ((m as { type?: unknown } | null)?.type === "shutdown") stop();
+        });
+        process.on("disconnect", stop);
+      }
     },
     (e: unknown) => {
       process.stderr.write(`web: ${e instanceof Error ? e.message : String(e)}\n`);

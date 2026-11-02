@@ -105,6 +105,7 @@ export interface MultiBotArgs {
   health: HealthMonitor;
   runner: RunnerSelection;
   checkAcl: boolean;
+  personal?: boolean;
   seams?: MultiBotSeams | undefined;
   phase2?: Phase2Options | undefined;
   phase3?: Phase3Options | undefined;
@@ -395,6 +396,7 @@ export async function startMultiBot(a: MultiBotArgs): Promise<MultiBotHandle> {
         getHarness: () => rt()?.harness,
         templates: p2.templates,
         checkAcl: a.checkAcl,
+        personal: a.personal === true,
         bridge,
         // a getter object: a persona change reapplies the CURRENT model, never the primary
         baseModel: switcher.liveModelRef(),
