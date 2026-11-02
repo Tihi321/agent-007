@@ -451,7 +451,7 @@ export function createJobTools(deps: JobToolsDeps) {
 
   const askUser = defineTool({
     name: "ask_user",
-    description: "Ask the user one short clarifying question and stop. Use it when a request is missing something you need (for example which template or which idea). Their next message is the answer.",
+    description: "Ask the user one short clarifying question and stop. Use it when a request is missing something you need (for example which template or which idea). Never put a file or folder path in the question; say \"that folder\" instead. Their next message is the answer.",
     parameters: askUserParameters,
     replay: "unsafe",
     execute: async (args: Static<typeof askUserParameters>, api: ToolExecutionApi): Promise<ToolExecutionResult> => {
