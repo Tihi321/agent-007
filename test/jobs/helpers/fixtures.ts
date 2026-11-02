@@ -30,7 +30,12 @@ export const TPL_FLOW = template({
   flow: { enabled: true, estimate: 40, maxCredits: 150 },
   cloud: ["claude-subscription", "google-flow"],
 });
-export const TPL_FLOW_PLAN = template({ id: "video-plan-job", flow: { enabled: true, estimator: "video-plan", maxCredits: 150 }, cloud: ["claude-subscription", "google-flow"] });
+export const TPL_FLOW_PLAN = template({
+  id: "video-plan-job",
+  params: { type: "object", properties: { idea: { type: "string", maxLength: 200, description: "the idea in a few words" } }, required: ["idea"], additionalProperties: false },
+  flow: { enabled: true, estimator: "video-plan", maxCredits: 150 },
+  cloud: ["claude-subscription", "google-flow"],
+});
 export const TPL_DSH = template({ id: "dsh-draft", engine: "dsh", cloud: ["deepseek-api"], enabled: false });
 export const TPL_HUB = template({ id: "hub-start-vibetts", engine: "hub", cloud: [] });
 export const ALL_TEMPLATES = [TPL_PLAIN, TPL_BOOK, TPL_VN, TPL_FLOW, TPL_FLOW_PLAN, TPL_DSH, TPL_HUB];

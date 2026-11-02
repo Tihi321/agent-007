@@ -435,7 +435,9 @@ export function createJobTools(deps: JobToolsDeps) {
       const shown = all.filter((t) => t.engine !== "hub");
       if (shown.length === 0) return text("No job templates are available.");
       const lines = shown.map((t) => {
-        const props = (typeof t.params["properties"] === "object" && t.params["properties"] !== null ? Object.keys(t.params["properties"]) : []).join(", ");
+        const defs = (typeof t.params["properties"] === "object" && t.params["properties"] !== null ? t.params["properties"] : {}) as Record<string, { description?: unknown }>;
+        // A param's `description` is shown so the model knows when and how to fill it (a guessed runDir was refused, D3).
+        const props = Object.entries(defs).map(([name, d]) => (typeof d?.description === "string" ? `${name} (${d.description})` : name)).join(", ");
         const req = Array.isArray(t.params["required"]) ? ` (required: ${(t.params["required"] as string[]).join(", ")})` : "";
         const flags = [
           t.enabled ? "" : "DISABLED",
