@@ -239,12 +239,15 @@ function modelsEnv(urls: { proxy: string; lmstudio: string; strata: string }, ex
     { id: "claude-sonnet", kind: "acp", baseUrl: `${urls.proxy}/v1`, providerId: "claude", apiKeyRef: "proxyApiKey", label: "Claude Sonnet", modelId: "claude/sonnet", contextWindow: 200000, maxTokens: 8192, privacy: "cloud", autoFallback: false },
   ];
   const config = { model: { runners: { lmstudio: { baseUrl: `${urls.lmstudio}/v1` }, strata: { baseUrl: urls.strata, contextWindow: 8192, maxTokens: 1024 } } } } as unknown as SecuritySnapshot["config"];
+  const box = new SecretBox(SecretBox.generateKey());
+  const learned: string[] = []; // what the catalogue hands to the gateway's log redactor
+  const open = (dir: string, audit: WebAudit) => createPresetCatalog({ dataDir: dir, box, audit, secrets: { proxyApiKey: PROXY_KEY }, loadSecurity: () => ({ presets: settings, terms: { claude: true, antigravity: false }, config }), securityHash: () => "fixed", resolver, intervalMs: 0, onSecret: (k) => learned.push(k) });
   const models = (dir: string, audit: WebAudit) => {
-    const catalog = createPresetCatalog({ dataDir: dir, box: new SecretBox(SecretBox.generateKey()), audit, secrets: { proxyApiKey: PROXY_KEY }, loadSecurity: () => ({ presets: settings, terms: { claude: true, antigravity: false }, config }), securityHash: () => "fixed", resolver, intervalMs: 0 });
+    const catalog = open(dir, audit);
     holder.catalog = catalog;
     return { catalog, deps: { resolver, lastFetch: new Map<string, number>(), ...(extra.fetch ? { fetch: extra.fetch } : {}) } };
   };
-  return { models, dns, holder };
+  return { models, open, dns, holder, learned };
 }
 
 async function stepUpOwner(t: TestApp): Promise<void> {
@@ -379,6 +382,11 @@ test("custom provider: SSRF, key secrecy, billing", async () => {
     assert.equal((await call("list")).json().sources.length, 3, "nothing was saved");
     const added = await call("sources/add", good);
     assert.deepEqual([added.status, added.json().sourceId], [200, "exampleai"]);
+    assert.ok(env.learned.includes(KEY), "a saved key goes to the log redactor");
+    env.learned.length = 0;
+    const booted = env.open(t.dir, t.audit);
+    booted.close();
+    assert.deepEqual(env.learned, [KEY], "so does a stored key when the gateway starts");
     const s1 = await source();
     assert.deepEqual([s1.privacy, s1.hasKey, s1.baseUrl, "apiKey" in s1], ["cloud", true, "https://api.example.test/v1", false]);
     // the base URL is immutable
