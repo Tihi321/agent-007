@@ -113,5 +113,5 @@ export async function renderAdmin(ctx) {
         if (r.ok) ctx.signedOut();
       } }, "Lockdown: sign everyone out")
     : null;
-  return h("section", { "aria-labelledby": "admin-title" }, h("h1", { id: "admin-title" }, "Admin"), ctx.role === "owner" ? h("p", {}, h("a", { class: "btn", href: "#/admin/models" }, "Models: fetch and add model presets")) : null, out, h("h2", {}, "People"), usersEl, invite, h("h2", {}, "Invitations"), invitesEl, ctx.role === "owner" ? h("h2", {}, "Paid routes (off until you set a daily and a monthly cap)") : null, ctx.role === "owner" ? paidEl : null, ctx.role === "owner" ? h("h2", {}, "Audit (no message text)") : null, ctx.role === "owner" ? auditEl : null, lock);
+  return h("section", { class: "page", "aria-labelledby": "admin-title" }, h("h1", { id: "admin-title" }, "Admin"), ctx.role === "owner" ? h("p", {}, h("a", { class: "btn", href: "#/admin/models" }, "Models: fetch and add model presets")) : null, out, h("h2", {}, "People"), usersEl, invite, h("h2", {}, "Invitations"), invitesEl, ctx.role === "owner" ? h("h2", {}, "Paid routes (off until you set a daily and a monthly cap)") : null, ctx.role === "owner" ? paidEl : null, ctx.role === "owner" ? h("h2", {}, "Audit (no message text)") : null, ctx.role === "owner" ? auditEl : null, lock);
 }

@@ -58,7 +58,7 @@ export async function renderAccount(ctx) {
   await loadSessions();
   const root = h(
     "section",
-    { "aria-labelledby": "acct-title" },
+    { class: "page", "aria-labelledby": "acct-title" },
     h("h1", { id: "acct-title" }, "Account"),
     h("h2", {}, "Devices and sessions"),
     sessions,

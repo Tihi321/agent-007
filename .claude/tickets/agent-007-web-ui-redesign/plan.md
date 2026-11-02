@@ -343,6 +343,8 @@ Order: WR1, then WR2 and WR6 in parallel, then WR3, WR4 and WR5 in parallel, the
 - **Done:** the extended safe-Markdown test passes.
 
 ### WR7 Auth, Account, Admin, Models restyle
+- **Status: DONE.** Evidence: `yarn build` ok; full run 1598 tests, 1596 pass, 1 fail (redteam T8 flake; passes alone 15/15), 1 skipped; ui.test.js 9/9 (journey, L4 step-up and models tests unchanged). UI total 136 KB; app.css 21 KB. UNTESTED (no browser): light and dark look of every screen, the 400 px card, the logo image, Models two-column layout.
+- **Deviations:** JS changes are only class names and one decorative `img` (`/icon.svg`, `alt=""`) added to the four auth screens (sign-in, claim, invite, enrol, recovery codes): auth forms now use `card authcard` instead of `card narrow`; Account, Admin and Models root sections get `class="page"`. No string or logic change; Models code paths (I59 to I62) untouched.
 - **Inputs:** §3.3 (auth screens, settings-type pages).
 - **Outputs:** class and wrapper changes in `auth.js`, `account.js`, `admin.js` and `models.js`.
 - **Contracts:**
