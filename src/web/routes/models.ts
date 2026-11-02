@@ -409,10 +409,11 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
           const force = b["force"] === true;
           const bots = botsUsing(new Set([presetId]));
           if (bots.length > 0 && !force) throw inUse(bots, "This model");
+          // the references go first: if anything fails, the model is still listed and the owner can remove it again (the purge repeats safely)
+          const purged = purgePresets(new Set([presetId]));
           catalog.update((draft) => {
             draft.doc.presets = draft.doc.presets.filter((x) => x.id !== presetId);
           });
-          const purged = purgePresets(new Set([presetId]));
           audit({ kind: "models_remove", user: me(c), detail: { presetId, force, bots: bots.length, capsCleared: purged.caps, botsChanged: purged.bots, needsSetup: purged.needsSetup } });
           return { status: 200, body: { ok: true } };
         }),
@@ -507,12 +508,12 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
           const ids = new Set(catalog.entries().filter((e) => e.origin === "web" && e.sourceId === source.id).map((e) => e.preset.id));
           const bots = botsUsing(ids);
           if (bots.length > 0 && !force) throw inUse(bots, "This provider's models are");
+          const purged = purgePresets(ids); // first, as in presets/remove
           catalog.update((draft) => {
             draft.doc.presets = draft.doc.presets.filter((p) => p.sourceId !== source.id);
             draft.doc.sources = draft.doc.sources.filter((s) => s.id !== source.id);
             draft.keys.remove(source.id);
           });
-          const purged = purgePresets(ids);
           lastRows.delete(source.id);
           audit({ kind: "models_source_remove", user: me(c), detail: { sourceId: source.id, privacy: derivePrivacy(source), billing: source.billing, keyChanged: source.keyRef !== undefined, bots: bots.length, force, capsCleared: purged.caps, botsChanged: purged.bots, needsSetup: purged.needsSetup } });
           return { status: 200, body: { ok: true } };
