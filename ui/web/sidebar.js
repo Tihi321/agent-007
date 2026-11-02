@@ -67,7 +67,7 @@ export function renderSidebar(ctx) {
       setMenu(false, true);
     }
   });
-  if (ctx.onDocument) ctx.onDocument("click", (ev) => menuOpen && !menu.contains(ev.target) && setMenu(false));
+  const offClick = ctx.onDocument ? ctx.onDocument("click", (ev) => menuOpen && !menu.contains(ev.target) && setMenu(false)) : null;
 
   // ----- data -----
   const latestOf = (id) => threads.filter((t) => t.botId === id).reduce((a, t) => (!a || t.updatedAt > a.updatedAt ? t : a), null);
@@ -207,6 +207,11 @@ export function renderSidebar(ctx) {
     draw();
   };
   root.refresh = refresh;
+  root.dispose = () => {
+    if (typeof offClick === "function") offClick();
+    if (searchTimer) clearTimeout(searchTimer);
+    if (skelTimer) clearTimeout(skelTimer);
+  };
   root.focusSearch = () => {
     input.focus();
     if (input.select) input.select();

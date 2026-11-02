@@ -124,8 +124,7 @@ export function renderDetails(ctx, bot, o = {}) {
     clear(list, items.length > 0 ? items.map(threadRow) : h("li", { class: "muted small" }, t.ok ? "No chats yet." : "Could not load the chats."));
   }
 
-  const av = avatarEl(bot.avatar);
-  av.className = av.className.replace("av-md", "av-lg");
+  const av = avatarEl(bot.avatar, "lg");
   const root = h(
     "div",
     {

@@ -1,6 +1,6 @@
 # Web UI redesign: Grok-Bot-style layout, MVP-ready
 
-Status: APPROVED 2026-11-02 with the answers in §11 (WQ1 to WQ8 all answered: defaults accepted; WQ6 = live check on the redesigned UI). WR1, WR2, WR3, WR4 and WR6 done; WR5, WR7 and WR8 not started. Repo `C:\projects\Personal\agent-007`, base `master` 5f0be1c. Proposed branch: `agent-007-web-ui-redesign` (WQ8).
+Status: APPROVED 2026-11-02 with the answers in §11 (WQ1 to WQ8 all answered: defaults accepted; WQ6 = live check on the redesigned UI). WR1 to WR8 done and committed on the branch (see "Results" at the end); the WU manual browser check is still open. Repo `C:\projects\Personal\agent-007`, base `master` 5f0be1c. Proposed branch: `agent-007-web-ui-redesign` (WQ8).
 Research: `research.md` (this folder) has the sources and the design spec read off the Grok Bot screenshots.
 Parent plans:
 - `.claude/tickets/agent-007-milestone2/plan.md`: S35 UI, I47 to I58, §7 Web UI, §15 Live order.
@@ -444,3 +444,35 @@ Run on the PC over loopback (`http://127.0.0.1:47009`), after `yarn build` and t
 - **WK3** Re-rendering Markdown during streaming costs CPU on long answers. Mitigation: a 100 ms throttle; the parser is linear; past 20,000 characters, render plain text until the end.
 - **WK4** Screen readers re-reading streaming text. Mitigation: `aria-busy` on the live bubble, and announce only the finished message.
 - **WK5** Copying another product's look too closely. Mitigation: D1. Our own avatar drawings, icons and name; patterns only.
+
+## Results (WR8, 2026-11-02)
+
+### Commits (branch `agent-007-web-ui-redesign`)
+WR1 187ae41, WR2 a5ba440, WR6 fd9e6dc, WR4 711d1f2, WR3 9ba12d3, WR5 fa07cc8, WR7 23500a5, WR8 = the commit that adds this section (`git log` for its SHA).
+
+### Tests and size
+- `corepack yarn build` ok. Full run: 1598 tests, 1596 pass, 1 fail (redteam T8 "request was dropped", the known flake; passes alone 15/15), 1 skipped. ui.test.js alone 9/9.
+- UI total (budget test sums `dist/ui/web`): 136,515 bytes (133.3 KB), under the 160 KB budget. Largest file: `models.js` 22,536 bytes (`app.css` 21,031); per-file limit 30 KB holds.
+- WR8 test edit: one assertion added to the existing safe-Markdown test (a line like "```inline```" stays a paragraph). No new tests.
+
+### Code review (medium) findings and handling
+1. Live repaint forced scroll to the bottom: fixed; `paint()` scrolls only if the log was within 48 px of the bottom before the repaint (chat.js).
+2. Fence opener `/^```(.*)$/` opened never-closing blocks for "```inline```": fixed with `/^```([^`]*)$/` (markdown-parse.js); asserted in the safe-Markdown test.
+3. Document listeners never removed: `onDocument` now returns an unregister function (app.js); the sidebar keeps it and `sidebar.dispose()` (new) removes the click handler and clears its timers; `drawShell` calls it on sign-out. The Ctrl+K keydown listener in app.js is registered once per app and reads the current sidebar.
+4. Ctrl/Cmd+K swallowed on narrow screens outside the list: handled only when `mode === "list"` or `(min-width: 900px)` matches (or no `matchMedia`); otherwise the browser default is kept.
+5. Avatar size by `className.replace`: replaced with `avatarEl(name, "lg"|"sm")` in chat.js and details.js.
+6. `sleep()` timer never cleared: `dispose` now clears the pending timer and wakes the waiter.
+Not fixed (plan decisions): avatar `aria-label` next to the bot name (§3.3: role=img + look label); full Markdown re-render every 100 ms (§3.4, WK3); "Connection lost" after the 1/2/4 s ladder re-enables Send (§4); `api.stream` is not wrapped by the offline banner.
+
+### Security review
+No findings.
+
+### MVP checklist (§7): code-done by WR1 to WR8 and covered by the offline tests where noted; every item still needs the WU browser check (layout, CSS, themes, focus, timing are UNTESTED in a browser)
+- Code-done, tested offline: Markdown safety (parser + DOM-tree tests), avatars (8 looks, picker in the journey test), bot gallery data path, history/search/pin/rename/export/delete (chat tests), stream resume (WA5), time labels (WA6), one `aria-current`.
+- Code-done, needs WU: empty states, skeletons (150 ms), error/offline/retry visuals, three breakpoints and mobile back/details sheet, keyboard (Enter, Shift+Enter, Escape, Ctrl+K), a11y (contrast, zoom, reduced motion), dark mode, typing dots and live render timing, Copy, Stop/Regenerate, approval card, details toggle.
+
+### Deviations collected
+WR1: light `--muted` #64646b; `--focus` is accent blue; `icon()` added to dom.js; `avatarEl` adds size classes; old letter-in-avatar rule removed. WR2 to WR7: see each task. WR5: budget raised to 160 KB there (not in WR8). WR7: only class and wrapper changes plus a decorative logo `img`. WR8: no docs change (see below); `sidebar.dispose` and `onDocument` return value are small API additions for review item 3.
+
+### Docs
+README.md has no section for the gateway's web UI layout (only the Models page), so no README change was made.

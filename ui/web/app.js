@@ -132,6 +132,7 @@ export function start(env) {
       if (!sidebar) sidebar = renderSidebar(ctx);
       clear(shell, sidebar, h("div", { class: "centre" }, back, main), details);
     } else {
+      if (sidebar) sidebar.dispose();
       sidebar = null;
       clear(shell, h("div", { class: "centre" }, main));
     }
@@ -140,7 +141,9 @@ export function start(env) {
   drawShell();
 
   env.onDocument?.("keydown", (ev) => {
-    if ((ev.ctrlKey || ev.metaKey) && String(ev.key).toLowerCase() === "k" && sidebar) {
+    // Only where the search is on screen: the sidebar is hidden on narrow screens outside the bot list.
+    const visible = mode === "list" || typeof matchMedia !== "function" || matchMedia("(min-width: 900px)").matches;
+    if ((ev.ctrlKey || ev.metaKey) && String(ev.key).toLowerCase() === "k" && sidebar && visible) {
       ev.preventDefault();
       sidebar.focusSearch();
     }
@@ -216,6 +219,6 @@ if (typeof window !== "undefined" && typeof document !== "undefined" && !window.
       setTimeout(() => URL.revokeObjectURL(a.href), 1000);
     },
     focusMain: true,
-    onDocument: (type, fn) => document.addEventListener(type, fn),
+    onDocument: (type, fn) => (document.addEventListener(type, fn), () => document.removeEventListener(type, fn)),
   });
 }

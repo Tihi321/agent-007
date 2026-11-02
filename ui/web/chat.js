@@ -39,6 +39,7 @@ export async function renderChat(ctx, botId, threadId) {
   let paintTimer = null;
   let lastPaint = 0;
   let wake = null;
+  let sleepTimer = null;
 
   const typing = h("span", { class: "typing", "aria-hidden": "true" }, h("span"), h("span"), h("span"));
   const liveBody = h("div", { class: "live-body" });
@@ -77,10 +78,11 @@ export async function renderChat(ctx, botId, threadId) {
   const paint = () => {
     paintTimer = null;
     lastPaint = Date.now();
+    const stick = !(log.scrollHeight - log.scrollTop - log.clientHeight > 48);
     typing.hidden = text !== "";
     if (text === "") clear(liveBody);
     else clear(liveBody, text.length > PLAIN_OVER ? h("p", { class: "plain" }, text) : renderMarkdown(text));
-    log.scrollTop = log.scrollHeight;
+    if (stick) log.scrollTop = log.scrollHeight;
   };
   const schedulePaint = () => {
     if (!paintTimer) paintTimer = setTimeout(paint, Math.max(0, PAINT_MS - (Date.now() - lastPaint)));
@@ -133,8 +135,7 @@ export async function renderChat(ctx, botId, threadId) {
     input.focus();
   };
   const showEmpty = () => {
-    const av = avatarEl(bot.avatar);
-    av.className = av.className.replace("av-md", "av-lg");
+    const av = avatarEl(bot.avatar, "lg");
     clear(
       log,
       h("div", { class: "empty" }, av, h("p", { class: "empty-title" }, `Start a chat with ${bot.name}.`), bot.tagline ? h("p", { class: "muted" }, bot.tagline) : null, h("div", { class: "chips" }, (bot.starters || []).map((s) => h("button", { class: "btn btn-small", type: "button", onclick: () => useStarter(s) }, s)))),
@@ -188,7 +189,11 @@ export async function renderChat(ctx, botId, threadId) {
     else if (ev.type === "tool") liveTools.append(h("span", { class: `chip chip-${d.status}` }, `${d.name}: ${d.status}`));
     else if (ev.type === "approval") cards.append(approvalCard(d.card));
   };
-  const sleep = (ms) => new Promise((res) => ((wake = res), setTimeout(res, ms)));
+  const sleep = (ms) =>
+    new Promise((res) => {
+      wake = res;
+      sleepTimer = setTimeout(res, ms);
+    });
   async function follow(resume) {
     if (!thread || following) return;
     following = true;
@@ -272,8 +277,7 @@ export async function renderChat(ctx, botId, threadId) {
   }
   const details = renderDetails(ctx, bot, { botId, thread, onClose: () => setDetails(false, true), onStarter: useStarter });
 
-  const av = avatarEl(bot.avatar);
-  av.className = av.className.replace("av-md", "av-sm");
+  const av = avatarEl(bot.avatar, "sm");
   const root = h(
     "section",
     { class: "chatview", "aria-labelledby": "chat-title" },
@@ -289,6 +293,7 @@ export async function renderChat(ctx, botId, threadId) {
     disposed = true;
     if (abort) abort.abort();
     if (paintTimer) clearTimeout(paintTimer);
+    if (sleepTimer) clearTimeout(sleepTimer);
     if (wake) wake();
   };
   await Promise.all([showThread(), details.refresh()]);

@@ -64,7 +64,7 @@ export function parseMarkdown(src) {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
     let m;
-    if ((m = /^```(.*)$/.exec(line))) {
+    if ((m = /^```([^`]*)$/.exec(line))) {
       endPara();
       const code = [];
       i++;

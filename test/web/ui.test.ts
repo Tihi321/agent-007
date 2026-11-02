@@ -71,6 +71,7 @@ test("safe Markdown: HTML stays text, javascript: links are not links, images ne
   assert.ok(!flat(r[1]).includes('"t":"link"'), "javascript: in a cell is not a link");
   assert.equal(r[1].rows[0][1][0].t, "strong");
   assert.equal(r[3].items.length, 2, "nested items stay one level");
+  assert.deepEqual(parseMarkdown("```inline```").map((x: any) => x.t), ["p"], "a fence line with a backtick later is not a code block");
   // pathological input is linear, not catastrophic
   const t0 = Date.now();
   parseMarkdown("*".repeat(20000) + "[".repeat(20000) + "`".repeat(20000));
