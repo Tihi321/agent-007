@@ -6,7 +6,7 @@ import { clear, field, h } from "./dom.js";
 const AVATAR_LABEL = { robot: "Robot", fox: "Fox", owl: "Owl", cat: "Cat", planet: "Planet", leaf: "Leaf", bolt: "Bolt", book: "Book" };
 
 export function avatarEl(name) {
-  return h("span", { class: `avatar avatar-${name}`, role: "img", "aria-label": AVATAR_LABEL[name] || "Avatar" }, (AVATAR_LABEL[name] || "?").slice(0, 1));
+  return h("span", { class: `avatar av-md av-${name} avatar-${name}`, role: "img", "aria-label": AVATAR_LABEL[name] || "Avatar" }, (AVATAR_LABEL[name] || "?").slice(0, 1));
 }
 
 export function badgeEl(bot) {

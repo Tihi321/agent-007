@@ -31,6 +31,7 @@ test("static: index.html has no inline script, style or event attribute and load
     assert.ok(!/localStorage|sessionStorage|indexedDB|document\.cookie/.test(code), `no browser storage of secrets in ${f}`);
   }
   for (const f of srcFiles().filter((x) => x.endsWith(".css"))) assert.ok(!/@import|url\(\s*["']?https?:/.test(readFileSync(f, "utf8")), `no external CSS in ${f}`);
+  for (const f of srcFiles().filter((x) => x.endsWith(".css"))) for (const m of readFileSync(f, "utf8").matchAll(/url\(\s*([^)]*)\)/g)) assert.ok((m[1] as string).startsWith('"/') && !(m[1] as string).startsWith('"//'), `only same-origin url() in ${f}: ${m[1]}`);
 });
 
 test("size budget: the whole UI is small (under 130 KB, no file over 30 KB)", () => {
