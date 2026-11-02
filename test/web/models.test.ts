@@ -371,8 +371,8 @@ test("custom provider: SSRF, key secrecy, billing", async () => {
   try {
     await stepUpOwner(t);
     const good = { label: "Example AI", baseUrl: "https://api.example.test/v1", apiKey: KEY, billing: "subscription" };
-    // refused at save: plain http off this PC, a host that resolves to a private address, credentials, a query, no billing for a cloud URL
-    for (const bad of [{ baseUrl: "http://api.example.test/v1" }, { baseUrl: "https://evil.example.test/v1" }, { baseUrl: "https://u:p@api.example.test/v1" }, { baseUrl: "https://api.example.test/v1?x=1" }, { billing: undefined }]) {
+    // refused at save: plain http off this PC, a host that resolves to a private address, credentials, a query, agent-007's own gateway port, no billing for a cloud URL
+    for (const bad of [{ baseUrl: "http://api.example.test/v1" }, { baseUrl: "https://evil.example.test/v1" }, { baseUrl: "https://u:p@api.example.test/v1" }, { baseUrl: "https://api.example.test/v1?x=1" }, { baseUrl: "http://127.0.0.1:47009/v1" }, { billing: undefined }]) {
       const r = await call("sources/add", { ...good, ...bad });
       assert.equal(r.status, 400, JSON.stringify(bad) + r.text);
     }

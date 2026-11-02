@@ -13,7 +13,7 @@ import { newUserId, parseRuntimeBotId, runtimeBotId } from "../../src/web/ids.js
 import { userPaths } from "../../src/web/paths.js";
 import { buildUserToolbox } from "../../src/web/runtime/tools.js";
 import { SchedulerAbortedError, SchedulerBusyError, TurnScheduler } from "../../src/web/runtime/scheduler.js";
-import { checkUrl, isBlockedAddress } from "../../src/web/runtime/ssrf.js";
+import { checkUrl, isBlockedAddress, isBlockedLoopbackPort } from "../../src/web/runtime/ssrf.js";
 import { UserBotError, UserBotRegistry, UserBotStore, toRuntimeBot, validateUserBot } from "../../src/web/runtime/userBots.js";
 import { UserFs, UserFsError, safeSegments } from "../../src/web/runtime/userFs.js";
 import { defaultCaps } from "../../src/web/schemas.js";
@@ -247,6 +247,8 @@ test("SSRF guard: private, loopback, link-local, CGNAT and tailnet addresses, nu
   await no("http://pc.tail1234.ts.net/", {}, ["pc.tail1234.ts.net"]);
   await no("http://printer.local/", {}, ["printer.local"]);
   await no("https://example.com:8787/", { "example.com": ["93.184.216.34"] });
+  // a custom provider on this PC: the model servers are allowed, agent-007's own services are not
+  assert.deepEqual(["http://127.0.0.1:1234/v1", "http://127.0.0.1:8080/v1", "http://localhost:8787/v1", "http://127.0.0.1:47007", "http://[::1]:47009/v1"].map(isBlockedLoopbackPort), [false, false, false, true, true]);
   await no("https://example.com:47009/", { "example.com": ["93.184.216.34"] });
   assert.match(await no("https://evil.com/", { "evil.com": ["93.184.216.34"] }), /allowlist/);
   assert.match(await no("https://example.com/", { "example.com": ["93.184.216.34", "10.0.0.5"] }), /resolves to a private/, "rebinding: one bad address blocks");

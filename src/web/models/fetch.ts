@@ -15,7 +15,7 @@ import type { AuthMethod } from "../../proxy/health.js";
 import type { TermsAccepted } from "../../bots/schema.js";
 import { classify, familyDefaults, findExistingPreset, isLiteralLoopbackUrl, isSetUp, parseLmStudioModels, parseOpenAiModels, parseProxyModels, presetIdFor } from "../../models/sources.js";
 import type { ExistingPreset, FetchedRow, ModelSource, ParsedList, ParsedModel } from "../../models/sources.js";
-import { checkUrl } from "../runtime/ssrf.js";
+import { checkUrl, isBlockedLoopbackPort } from "../runtime/ssrf.js";
 import type { Resolver } from "../runtime/ssrf.js";
 
 export const FETCH_TIMEOUT_MS = 10_000;
@@ -204,6 +204,8 @@ export async function fetchModels(source: ModelSource, deps: FetchDeps): Promise
     const v = await checkUrl(source.baseUrl, [host], deps.resolver ?? defaultResolver);
     if (!v.ok) return fail(ERR_BAD_URL);
   }
+  // A loopback custom source may not point at agent-007's own services (job runner, settings UI, gateway); the model servers are fine.
+  if (source.kind === "custom" && isLiteralLoopbackUrl(source.baseUrl) && isBlockedLoopbackPort(source.baseUrl)) return fail(ERR_BAD_URL);
   if (source.keyRef?.startsWith("webkey:") && key === undefined) return fail("the key of this provider cannot be read: save it again");
 
   let listed: Listed;

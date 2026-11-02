@@ -37,7 +37,7 @@ import type { WebAudit } from "../audit.js";
 import type { ModelEndpoint } from "../chat/openaiEngine.js";
 import type { SecretBox } from "../crypto.js";
 import { webPaths } from "../paths.js";
-import { checkUrl } from "../runtime/ssrf.js";
+import { checkUrl, isBlockedLoopbackPort } from "../runtime/ssrf.js";
 import type { Resolver } from "../runtime/ssrf.js";
 import { ModelsStore, emptyKeys, emptyModels } from "./store.js";
 import type { KeysFile, ModelsFile, StoredSource } from "./store.js";
@@ -326,6 +326,8 @@ export function createPresetCatalog(o: PresetCatalogOptions): PresetCatalog {
       if (apiKey === undefined) return undefined; // a keyed source without a usable key is not served (no key-less call to a paid host)
     }
     const baseUrl = p.baseUrl;
+    // A loopback source on one of agent-007's own service ports (saved before that was refused at add time) is not served.
+    if (isLiteralLoopbackUrl(baseUrl) && isBlockedLoopbackPort(baseUrl)) return undefined;
     const ep: ModelEndpoint = { baseUrl, apiKey, modelId: p.modelId, maxTokens: p.maxTokens, viaProxy: false, ...(isPaidPreset(p) ? { paid: true } : {}), label: p.label };
     // I60: a source on a host that is not a literal loopback one is checked before every request (https, no private address, own host only).
     // A loopback source marked "treat as cloud" is cloud for privacy but is the owner's own machine, so it has no SSRF check.

@@ -20,7 +20,7 @@ import type { FetchFn } from "../models/fetch.js";
 import type { PresetCatalog } from "../models/catalog.js";
 import { CONTEXT_WINDOW_MAX, CONTEXT_WINDOW_MIN, MAX_BASE_URL, MAX_CUSTOM_SOURCES, MAX_PRESET_LABEL, MAX_SOURCE_LABEL, MAX_TOKENS_MIN, MAX_WEB_PRESETS, maxTokensLimit } from "../models/store.js";
 import { chainOf } from "../runtime/route.js";
-import { checkUrl } from "../runtime/ssrf.js";
+import { checkUrl, isBlockedLoopbackPort } from "../runtime/ssrf.js";
 import type { Resolver } from "../runtime/ssrf.js";
 import type { RouteCtx, RouteDef, RouteResult } from "../server.js";
 import type { WebStack } from "../stack.js";
@@ -179,6 +179,7 @@ export function modelsRoutes(o: ModelsRoutesOptions): Record<string, RouteDef> {
     if (u.username !== "" || u.password !== "") throw bad("The base URL must not contain a user name or password. Use the API key field.");
     const baseUrl = u.origin + u.pathname.replace(/\/+$/, "");
     const loopback = isLiteralLoopbackUrl(baseUrl);
+    if (loopback && isBlockedLoopbackPort(baseUrl)) throw bad("That port is one of agent-007's own services, not a model server.");
     if (!loopback) {
       if (u.protocol !== "https:") throw bad("A provider that is not on this PC must use https.");
       const v = await checkUrl(baseUrl, [u.hostname], resolver ?? defaultResolver);

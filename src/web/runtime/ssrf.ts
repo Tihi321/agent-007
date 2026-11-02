@@ -8,6 +8,23 @@
 import { isIP } from "node:net";
 
 export const BLOCKED_PORTS: readonly number[] = [1234, 8080, 8787, 47007, 47008, 47009];
+/** Blocked ports a custom provider on this PC (a literal loopback URL) may still use: LM Studio (1234), Strata (8080) and the ACP proxy (8787) are model servers. */
+export const LOOPBACK_MODEL_PORTS: readonly number[] = [1234, 8080, 8787];
+
+/**
+ * True when a loopback custom provider URL points at a blocked port that is not a model server: agent-007's own job runner IPC (47007),
+ * settings UI (47008) and web gateway (47009). Those speak agent-007's own protocols and must never receive a model request or a provider key.
+ */
+export function isBlockedLoopbackPort(url: string): boolean {
+  let u: URL;
+  try {
+    u = new URL(url);
+  } catch {
+    return true;
+  }
+  const port = u.port !== "" ? Number(u.port) : u.protocol === "https:" ? 443 : 80;
+  return BLOCKED_PORTS.includes(port) && !LOOPBACK_MODEL_PORTS.includes(port);
+}
 
 function v4Parts(ip: string): number[] | undefined {
   const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip);
