@@ -343,6 +343,39 @@ test("WA5: a dropped stream resumes from the last event id with no duplicated or
   assert.equal(finalBubbles()[0]!.textContent.replace(/Regenerate/g, ""), renderMarkdown(full).textContent);
 });
 
+test("after Connection lost the partial answer is marked and Send stays off until the run is known to be over", async () => {
+  (globalThis as any).document = fakeDocument;
+  const { renderChat } = await load("chat.js");
+  let done = false;
+  const bot = { id: "b", name: "Bee", avatar: "robot", presetLabel: "strata", cloud: false, starters: [] };
+  const messages = [{ role: "user", text: "hi", at: 1 }, { role: "assistant", text: "Half an answer, then the rest", at: 2 }];
+  const api = {
+    async call(path: string) {
+      if (path === "/api/bots/get") return { ok: true, status: 200, data: { bot } };
+      if (path === "/api/chat/thread/get") return { ok: true, status: 200, data: { thread: { messages: done ? messages : [messages[0]] }, running: !done } };
+      return { ok: true, status: 200, data: { threads: [], paid: [] } };
+    },
+    async stream(_b: string, _t: string, o: { last: number; onEvent: (e: unknown) => void }) {
+      if (o.last === 0) o.onEvent({ id: 1, type: "delta", data: { text: "Half an answer" } });
+      return { ok: false, status: 0 }; // the stream never comes back
+    },
+  };
+  const banner: boolean[] = [];
+  const ctx = { api, resumeDelays: [1, 1, 1], watchMs: 5, streamLost: (on: boolean) => banner.push(on), refreshBots: async () => {}, openDetails() {}, closeDetails() {}, detailsOpen: () => false, go() {}, replace() {}, confirm: () => true, prompt: () => "", download() {} };
+  const root = (await renderChat(ctx, "b", "t1")) as FElement;
+  await until(() => /Connection lost\.(?! Reconnecting)/.test(root.textContent));
+  const live = all(root).find((e) => e.className.includes("live"))!;
+  assert.match(live.className, /is-partial/);
+  assert.match(live.textContent, /Half an answer.*Partial answer/, "the partial text stays, marked as partial");
+  assert.ok(buttonByText(root, "Send").disabled && !buttonByText(root, "Stop").hidden, "no new message while the run may still be going");
+  assert.deepEqual(banner, [true]);
+  done = true; // the run finishes on the server; the view learns it without the stream
+  await until(() => all(root).some((e) => e.tagName === "article" && /then the rest/.test(e.textContent)));
+  assert.ok(!buttonByText(root, "Send").hidden && buttonByText(root, "Stop").hidden && live.hidden);
+  assert.deepEqual(banner, [true, false]);
+  root.dispose?.();
+});
+
 test("the gateway serves the built UI: index with the strict headers, scripts and styles with the right types, nothing outside the map", async () => {
   const t = await makeApp({ mode: "local" });
   const { startWebApp } = await import("../../src/web/app.js");

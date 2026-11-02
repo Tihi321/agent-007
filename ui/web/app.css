@@ -171,6 +171,7 @@ fieldset { border: 1px solid var(--border); border-radius: var(--radius); margin
 .bubble p { margin: 4px 0; }
 .plain { white-space: pre-wrap; }
 .live-body:empty { display: none; }
+.live.is-partial .bubble { border: 1px dashed var(--warn); }
 .daysep { align-self: center; margin: var(--space-3) 0 var(--space-1); font-size: var(--fs-xs); color: var(--muted); }
 .toolrow { display: flex; flex-wrap: wrap; }
 .toolrow:empty { display: none; }

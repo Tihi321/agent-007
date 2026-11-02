@@ -1,6 +1,7 @@
 // Chat (S35, WR3): header, message log, composer pill, approval cards. The thread list and the usage meter live in the details pane (details.js).
 // The stream is followed with fetch + Last-Event-ID, so a reload or a dropped connection resumes the same answer: on a failure while the thread is
-// still running the view waits 1 s, 2 s, 4 s and follows again from the last event id (the live text is kept, never rebuilt twice).
+// still running the view waits 1 s, 2 s, 4 s and follows again from the last event id (the live text is kept, never rebuilt twice). After that
+// ("Connection lost") the partial answer is marked and Send stays off until the run is known to be over, a resume works, or 2 minutes pass.
 // The live bubble shows typing dots until the first delta, then Markdown at most every 100 ms: finished blocks are appended once, and only the
 // last open block is rendered again (plain text when that block passes 20,000 chars). The finished answer is drawn again from the thread.
 import { avatarEl, badgeEl } from "./bots.js";
@@ -14,6 +15,8 @@ const GAP_MS = 30 * 60_000;
 const PAINT_MS = 100;
 const PLAIN_OVER = 20_000;
 const RESUME_MS = [1000, 2000, 4000];
+const WATCH_MS = 5000;
+const WATCH_FOR = 120_000;
 const canCopy = () => typeof navigator !== "undefined" && !!navigator && !!navigator.clipboard && typeof navigator.clipboard.writeText === "function";
 
 const toolRow = (tools) => (tools && tools.length > 0 ? h("div", { class: "toolrow" }, tools.map((t) => h("span", { class: `chip chip-${t.status}` }, `${t.name}: ${t.status}`))) : null);
@@ -51,7 +54,8 @@ export async function renderChat(ctx, botId, threadId) {
   const typing = h("span", { class: "typing", "aria-hidden": "true" }, h("span"), h("span"), h("span"));
   const liveBody = h("div", { class: "live-body" });
   const liveTools = h("div", { class: "toolrow" });
-  const live = h("div", { class: "msg msg-assistant live", hidden: true, "aria-busy": "false" }, h("div", { class: "bubble" }, typing, liveBody), liveTools);
+  const partialNote = h("p", { class: "sysline", hidden: true }, "Partial answer: the connection dropped before it finished.");
+  const live = h("div", { class: "msg msg-assistant live", hidden: true, "aria-busy": "false" }, h("div", { class: "bubble" }, typing, liveBody), liveTools, partialNote);
   const cards = h("div", { class: "cards-approval" });
   const log = h("div", { class: "log", role: "log", "aria-live": "polite", "aria-relevant": "additions text", tabindex: "0" });
   const status = h("div", { class: "status muted small", "aria-live": "polite" });
@@ -63,10 +67,15 @@ export async function renderChat(ctx, botId, threadId) {
   const grow = () => {
     const rows = input.value.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 70)), 0);
     input.setAttribute("rows", String(Math.min(8, Math.max(1, rows))));
-    sendBtn.disabled = input.value.trim() === "";
+    sendBtn.disabled = running || input.value.trim() === "";
+  };
+  const setPartial = (on) => {
+    partialNote.hidden = !on;
+    live.className = `msg msg-assistant live${on ? " is-partial" : ""}`;
   };
   const setRunning = (on) => {
     running = on;
+    sendBtn.disabled = on || input.value.trim() === "";
     sendBtn.hidden = on;
     stopBtn.hidden = !on;
     live.hidden = !on && text === "";
@@ -82,6 +91,7 @@ export async function renderChat(ctx, botId, threadId) {
     clear(liveTail);
     clear(liveBody);
     clear(liveTools);
+    setPartial(false);
     typing.hidden = false;
     live.hidden = true;
   };
@@ -219,6 +229,46 @@ export async function renderChat(ctx, botId, threadId) {
   const onOpen = () => {
     if (lost) setStatus("");
     streamLost(false);
+    setPartial(false);
+  };
+  // The run is over (or known not to be running): show the stored result.
+  const settle = async () => {
+    streamLost(false);
+    setRunning(false);
+    setStatus("");
+    resetLive();
+    await showThread();
+    await Promise.all([details.refresh(), ctx.refreshBots()]);
+  };
+  // After "Connection lost" the run may still be going: the partial answer is marked, Send stays off (Stop stays on), and the thread is asked
+  // every 5 s until the run is over (then the result is shown) or 2 minutes pass (then Send comes back). Retry resumes the stream instead.
+  let watchTimer = null;
+  let watchNow = null;
+  const watch = () => {
+    setPartial(true);
+    setStatus("Connection lost.", () => follow(true));
+    const end = Date.now() + (ctx.watchFor ?? WATCH_FOR);
+    const tick = async () => {
+      watchTimer = null;
+      watchNow = null;
+      if (disposed || following) return;
+      const t = await ctx.api.call("/api/chat/thread/get", { bot: botId, thread });
+      if (disposed || following) return;
+      if (t.ok && !t.data.running) return settle();
+      if (Date.now() >= end) {
+        streamLost(false);
+        return setRunning(false);
+      }
+      watchTimer = setTimeout(tick, ctx.watchMs ?? WATCH_MS);
+      watchNow = tick;
+    };
+    watchTimer = setTimeout(tick, ctx.watchMs ?? WATCH_MS);
+    watchNow = tick;
+  };
+  const stopWatch = () => {
+    if (watchTimer) clearTimeout(watchTimer);
+    watchTimer = null;
+    watchNow = null;
   };
   const sleep = (ms) =>
     new Promise((res) => {
@@ -228,6 +278,7 @@ export async function renderChat(ctx, botId, threadId) {
   async function follow(resume) {
     if (!thread || following) return;
     following = true;
+    stopWatch();
     if (!resume) {
       last = 0;
       resetLive();
@@ -261,13 +312,8 @@ export async function renderChat(ctx, botId, threadId) {
     following = false;
     if (paintTimer) clearTimeout(paintTimer);
     paint();
-    setRunning(false);
-    if (!ok) return setStatus("Connection lost.", () => follow(true));
-    streamLost(false);
-    setStatus("");
-    resetLive();
-    await showThread();
-    await Promise.all([details.refresh(), ctx.refreshBots()]);
+    if (!ok) return watch();
+    await settle();
   }
   const send = async () => {
     const body = input.value.trim();
@@ -286,7 +332,15 @@ export async function renderChat(ctx, botId, threadId) {
     if (t.ok) drawMessages(t.data.thread.messages);
     follow();
   };
-  const stop = () => ctx.api.call("/api/chat/stop", { thread });
+  const stop = async () => {
+    await ctx.api.call("/api/chat/stop", { thread });
+    // While the stream is lost, ask at once whether the run is over instead of waiting for the next check.
+    if (watchNow) {
+      const now = watchNow;
+      stopWatch();
+      now();
+    }
+  };
   stopBtn.addEventListener("click", stop);
   input.addEventListener("input", grow);
   input.addEventListener("keydown", (ev) => {
@@ -328,6 +382,7 @@ export async function renderChat(ctx, botId, threadId) {
     if (abort) abort.abort();
     if (paintTimer) clearTimeout(paintTimer);
     if (sleepTimer) clearTimeout(sleepTimer);
+    stopWatch();
     if (wake) wake();
   };
   await Promise.all([showThread(), details.refresh()]);
