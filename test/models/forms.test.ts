@@ -262,7 +262,8 @@ test("no source file other than the schema, the loader, the split, the read-only
   };
   walk(root);
   // S26: `agent/multibot.ts` hands the loaded value to the model switcher and the fallback engine as a getter (read only)
-  assert.deepEqual(hits.sort(), ["agent/multibot.ts", "bots/schema.ts", "jobrunner/settingsUi/forms/phase4.ts", "jobrunner/settingsUi/forms/registry.ts", "jobrunner/settingsUi/routes.ts", "models/presets.ts", "settings/schema.ts", "settings/split.ts"]);
+  assert.deepEqual(hits.sort(), ["agent/multibot.ts", "bots/schema.ts", "jobrunner/settingsUi/forms/phase4.ts", "jobrunner/settingsUi/forms/registry.ts", "jobrunner/settingsUi/routes.ts", "models/presets.ts", "settings/schema.ts", "settings/split.ts", "setup/personal.ts"]);
+  // setup/personal.ts (desktop first run, `yarn setup:local`) writes it ONLY from the owner's own tick in the setup window (I41); the running agent never does
   // the runtime reads it only through a getter (`terms()`), never assigns it
   assert.ok(!/termsAccepted\s*[=:]\s*\{?\s*(true|claude)/.test(readFileSync(join(root, "models", "presets.ts"), "utf8")));
   const host = readFileSync(join(root, "agent", "multibot.ts"), "utf8");

@@ -352,6 +352,13 @@ export async function runMain(argv: readonly string[] = process.argv.slice(2)): 
     process.once("SIGINT", stop);
     process.once("SIGTERM", stop);
     process.once("SIGBREAK", stop);
+    // the desktop launcher starts this with an IPC channel: {type:"shutdown"} or the parent dying stops it gracefully
+    if (process.send) {
+      process.on("message", (m: unknown) => {
+        if ((m as { type?: unknown } | null)?.type === "shutdown") stop();
+      });
+      process.once("disconnect", stop);
+    }
   });
   return 0;
 }

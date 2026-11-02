@@ -1,5 +1,5 @@
 /**
- * Entry point (S6.2): `node dist/src/main.js [--config <path>] [--secrets <path>] [--no-telegram] [--skip-acl-check]`.
+ * Entry point (S6.2): `node dist/src/main.js [--config <path>] [--secrets <path>] [--no-telegram] [--skip-acl-check] [--personal]`.
  *
  * Defaults: `%ProgramData%\agent-007\config\config.json` and `%ProgramData%\agent-007\secrets\secrets.json`
  * (`AGENT007_CONFIG` / `AGENT007_SECRETS` override the paths; the secret VALUES are never read from the environment).
@@ -33,6 +33,8 @@ export interface CliOptions {
   secretsPath: string;
   telegram: boolean;
   checkAcl: boolean;
+  /** Personal mode (the desktop app): skips only the settings-ACL check, which cannot pass with one Windows user. */
+  personal?: boolean;
 }
 
 export function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv = process.env): CliOptions {
@@ -41,6 +43,7 @@ export function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv = proce
   let secretsPath = env["AGENT007_SECRETS"] ?? `${programData}\\agent-007\\secrets\\secrets.json`;
   let telegram = true;
   let checkAcl = true;
+  let personal = false;
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i] as string;
     const value = (name: string): string => {
@@ -52,9 +55,10 @@ export function parseCli(argv: readonly string[], env: NodeJS.ProcessEnv = proce
     else if (a === "--secrets") secretsPath = value("--secrets");
     else if (a === "--no-telegram") telegram = false;
     else if (a === "--skip-acl-check") checkAcl = false;
+    else if (a === "--personal") personal = true;
     else throw new Error(`unknown argument ${JSON.stringify(a)}`);
   }
-  return { configPath, secretsPath, telegram, checkAcl };
+  return { configPath, secretsPath, telegram, checkAcl, ...(personal ? { personal } : {}) };
 }
 
 /** What `runMain` needs from the process; a test passes a fake. */
@@ -118,12 +122,17 @@ export async function runMain(cli: CliOptions, io: MainIO = {}): Promise<number>
   };
   listeners.push(["message", onMessage as () => void]);
   proc.on("message", onMessage);
+  // the launcher that started us with an IPC channel died: stop gracefully (never fires without an IPC channel)
+  const onDisconnect = (): void => shutdown(EXIT_OK, "parent gone");
+  listeners.push(["disconnect", onDisconnect]);
+  proc.on("disconnect", onDisconnect);
 
   try {
     agent = await startAgent({
       configPath: cli.configPath,
       secretsPath: cli.secretsPath,
       checkAcl: cli.checkAcl,
+      ...(cli.personal ? { personal: true } : {}),
       telegram: cli.telegram,
       onFatal: () => shutdown(EXIT_FATAL, "fatal error"),
       onRestart: (code) => shutdown(code, "restart requested (/applysettings)"),
