@@ -417,6 +417,7 @@ test("list_templates: hub templates are not offered; Flow, cloud and paid-model 
     const t = toolResults(m.fake)[0] ?? "";
     assert.match(t, /- chiptune-loop: Chiptune loop\./);
     assert.match(t, /Params: idea \(required: idea\)/);
+    assert.match(t, /video-plan-job[^\n]*Params: idea \(the idea in a few words\) \(required: idea\)/, "a param description is shown");
     assert.match(t, /book-step[^\n]*may use paid models/);
     assert.match(t, /video-short[^\n]*Flow credits \(estimate 40\)/);
     assert.match(t, /dsh-draft[^\n]*DISABLED/);

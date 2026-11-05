@@ -435,7 +435,9 @@ export function createJobTools(deps: JobToolsDeps) {
       const shown = all.filter((t) => t.engine !== "hub");
       if (shown.length === 0) return text("No job templates are available.");
       const lines = shown.map((t) => {
-        const props = (typeof t.params["properties"] === "object" && t.params["properties"] !== null ? Object.keys(t.params["properties"]) : []).join(", ");
+        const defs = (typeof t.params["properties"] === "object" && t.params["properties"] !== null ? t.params["properties"] : {}) as Record<string, { description?: unknown }>;
+        // A param's `description` is shown so the model knows when and how to fill it (a guessed runDir was refused, D3).
+        const props = Object.entries(defs).map(([name, d]) => (typeof d?.description === "string" ? `${name} (${d.description})` : name)).join(", ");
         const req = Array.isArray(t.params["required"]) ? ` (required: ${(t.params["required"] as string[]).join(", ")})` : "";
         const flags = [
           t.enabled ? "" : "DISABLED",
@@ -451,7 +453,7 @@ export function createJobTools(deps: JobToolsDeps) {
 
   const askUser = defineTool({
     name: "ask_user",
-    description: "Ask the user one short clarifying question and stop. Use it when a request is missing something you need (for example which template or which idea). Their next message is the answer.",
+    description: "Ask the user one short clarifying question and stop. Use it when a request is missing something you need (for example which template or which idea). Never put a file or folder path in the question; say \"that folder\" instead. Their next message is the answer.",
     parameters: askUserParameters,
     replay: "unsafe",
     execute: async (args: Static<typeof askUserParameters>, api: ToolExecutionApi): Promise<ToolExecutionResult> => {

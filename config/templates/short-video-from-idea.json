@@ -10,7 +10,7 @@
     "type": "object",
     "properties": {
       "seconds": { "type": "integer", "minimum": 4, "maximum": 60, "default": 8 },
-      "runDir": { "type": "string", "maxLength": 200, "pattern": "^runs[/\\\\][A-Za-z0-9][A-Za-z0-9._-]{0,63}([/\\\\][A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,3}$" }
+      "runDir": { "type": "string", "description": "an existing shot plan folder the user named, as runs/<folder>; never make one up", "maxLength": 200, "pattern": "^runs[/\\\\][A-Za-z0-9][A-Za-z0-9._-]{0,63}([/\\\\][A-Za-z0-9][A-Za-z0-9._-]{0,63}){0,3}$" }
     }
   },
   "permissionMode": "default",

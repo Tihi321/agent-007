@@ -123,6 +123,17 @@ test("Reject writes nothing", async () => {
   }
 });
 
+test("a draft without a model preset gets the default preset (the model cannot see the preset ids)", async () => {
+  const w = await world();
+  try {
+    const { modelPreset: _omit, ...d } = draft({ id: "research" });
+    assert.equal(((await propose(w, d)) as { status: string }).status, "pending");
+    assert.ok(String(w.rig.tg.of("sendMessage").at(-1)!.payload["text"]).includes("Model preset: lmstudio"));
+  } finally {
+    await done(w);
+  }
+});
+
 test("a widening draft, a built-in id, a user-authored id, a malformed draft and a 13th persona are refused BEFORE any card", async () => {
   const w = await world();
   try {

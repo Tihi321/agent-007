@@ -68,6 +68,9 @@ export async function openSettingsWorld(opts: WorldOptions): Promise<SettingsWor
   const effects: SettingsEffects = { cards: [], writeAttempts: [], auditReadAttempts: 0, shellAttempts: 0, currentPersona: "default", settingsReads: 0 };
   const ceiling = () => ceilingFor({ shell: { enabled: true }, mcp: { servers: [] }, presets: [{ id: "lmstudio" }], model: { defaultPreset: "lmstudio", runner: "lmstudio" }, budgets: { maxJobsPerDay: 20 } }, { templates: ["tts-line", "list-runs"] });
   const prefsFile = join(dir, "prefs", "prefs.json");
+  // The shipped default verbosity is already "short", the most concise value, so "be more concise" (S1) could never produce a card
+  // (propose_setting answers "already has this value"). Start one step up so the request has a real change to propose.
+  writeFileSync(prefsFile, JSON.stringify({ style: { tone: "neutral", verbosity: "normal", language: "en", notes: "" }, defaultPersona: "default" }));
   const prefs = new PrefsStore(prefsFile);
   const store = new PersonaStore({ userDir, modelDir });
   const resolver = new PersonaResolver({ store, ceiling, chats: { chatForConversation: () => 1 }, prefs, getHarness: () => undefined });
