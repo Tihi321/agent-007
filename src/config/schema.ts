@@ -60,6 +60,8 @@ export interface PathsConfig {
   controlDir: string;
   /** Holds `agent.lock`. */
   runDir: string;
+  /** REQ-0014, optional: the job runner's browser screenshot folder (`<runner dataDir>/browser/shots`, read-only for the agent). Absent = screenshots are not delivered. */
+  jobArtifactsDir?: string | undefined;
 }
 
 export interface LimitsConfig {
@@ -356,6 +358,14 @@ export function parseConfig(raw: unknown, env: DefaultsEnv): Config {
     controlDir: c.str(p["controlDir"], "paths.controlDir", winJoin(dataDir, "control")),
     runDir: c.str(p["runDir"], "paths.runDir", winJoin(dataDir, "run")),
   };
+  if (p["jobArtifactsDir"] !== undefined) {
+    const dir = c.str(p["jobArtifactsDir"], "paths.jobArtifactsDir");
+    if (!/^[A-Za-z]:[\\/]/.test(dir)) {
+      c.issues.push("paths.jobArtifactsDir: expected an absolute local path such as C:\\ProgramData\\agent-007-jobrunner\\browser\\shots");
+    } else {
+      paths.jobArtifactsDir = dir;
+    }
+  }
 
   // limits
   const l = c.obj(root["limits"], "limits", true);

@@ -42,7 +42,7 @@ test("shell on a Claude-primary bot is refused without the relax flag; applyBrai
   const base = botFromDoc(bot());
   assert.ok(base.tools.includes("shell"));
   const { bot: applied, removedTools, notes } = applyBrain(base, "sonnet");
-  assert.deepEqual(removedTools.sort(), ["dispatch_job", "shell"]);
+  assert.deepEqual(removedTools.sort(), ["browser_back", "browser_click", "browser_done", "browser_fill", "browser_goto", "browser_press", "browser_read", "browser_screenshot", "browser_type", "dispatch_job", "shell"]);
   assert.ok(!applied.tools.includes("shell") && !applied.tools.includes("dispatch_job"));
   assert.ok(notes.some((n) => /removed/.test(n)));
   // the loader refuses the unmodified tools on that route

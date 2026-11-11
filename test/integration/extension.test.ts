@@ -37,7 +37,7 @@ test("S6.1: the registry lists extension a7 with exactly the 7 schema tools (the
     for (const t of tools) assert.equal(t.deferred === true, (DEFERRED_PHASE1_TOOLS as readonly string[]).includes(t.name), `${t.name}: deferred flag`);
     assert.deepEqual(
       rig.agent.registry.snapshot().installed().map((e) => e.name),
-      [A7_EXTENSION_NAME, "tool-search", "mcp", "a7-jobs", "a7-settings"],
+      [A7_EXTENSION_NAME, "tool-search", "mcp", "a7-jobs", "a7-browser", "a7-settings"],
       "a7 plus the Phase 2 extensions and the Phase 3 settings tools",
     );
   } finally {

@@ -33,7 +33,19 @@ export const BOT_BUS_TOOLS = ["ask_bot", "list_bots"] as const;
 /** Every tool name the code can register: Phases 1 to 3 (`KNOWN_TOOLS`) plus the bus tools. An allowlist is a subset of this. */
 export const CODE_TOOL_NAMES: readonly string[] = [...KNOWN_TOOLS, ...BOT_BUS_TOOLS];
 /** The tools a bot with a cloud-capable route does not get unless the user relaxes it in the UI (I42, UI-25). */
-export const PRIVILEGED_TOOLS = ["shell", "dispatch_job"] as const;
+export const PRIVILEGED_TOOLS = [
+  "shell",
+  "dispatch_job",
+  "browser_goto",
+  "browser_back",
+  "browser_read",
+  "browser_click",
+  "browser_type",
+  "browser_fill",
+  "browser_press",
+  "browser_screenshot",
+  "browser_done",
+] as const;
 /**
  * Tools a PEER turn never gets, whatever an edge lists (D12, I36): shell, file write, `dispatch_job`, Flow (`hub_start` and the
  * Flow server's tools), `remember`, settings and persona changes, job control. S21's capability rule reuses this list.
@@ -49,6 +61,15 @@ export const PEER_FORBIDDEN_TOOLS: readonly string[] = [
   "propose_persona",
   "switch_persona",
   "ask_second_opinion",
+  "browser_goto",
+  "browser_back",
+  "browser_read",
+  "browser_click",
+  "browser_type",
+  "browser_fill",
+  "browser_press",
+  "browser_screenshot",
+  "browser_done",
 ];
 
 export const PRESET_KINDS = ["local", "acp"] as const;

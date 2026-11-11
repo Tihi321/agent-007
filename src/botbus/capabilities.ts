@@ -15,11 +15,12 @@
 import { toolAllowed } from "../bots/registry.js";
 import { BOT_BUS_TOOLS, PEER_FORBIDDEN_TOOLS, effectiveTools } from "../bots/schema.js";
 import { DEFAULT_FLOW_SERVER_ID } from "../config/schema.js";
+import { BROWSER_TOOL_NAMES } from "../jobs/browserContracts.js";
 import { MACRO_TOOLS } from "../settings/catalog.js";
 import type { BusBot, PeerCaps, PeerSummary, RootsMode } from "./contracts.js";
 
 /** Tools that need the user's go-ahead (or change what the bot may do). In a tainted turn none of them exists at all (I36(3)). */
-export const TAINT_BLOCKED_TOOLS: readonly string[] = ["shell", "dispatch_job", "hub_start", "propose_setting", "propose_persona", "switch_persona"];
+export const TAINT_BLOCKED_TOOLS: readonly string[] = ["shell", "dispatch_job", "hub_start", "propose_setting", "propose_persona", "switch_persona", ...BROWSER_TOOL_NAMES];
 
 /** Timers and schedulers are never offered to a peer turn (I33). No such tool exists yet; the names are reserved. */
 export const TIMER_TOOLS: readonly string[] = ["set_timer", "schedule_task", "remind_me", "cron"];
