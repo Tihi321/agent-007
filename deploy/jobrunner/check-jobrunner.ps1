@@ -76,6 +76,29 @@ foreach ($p in @($secretsFile, $DataDir)) {
     }
 }
 
+# the browser engine's folders (REQ-0014): shots\ gives the agent user Read only; profile\ must not be reachable by it
+$shotsDir = Join-WinPath $DataDir 'browser', 'shots'
+$profileDir = Join-WinPath $DataDir 'browser', 'profile'
+if (-not (Test-Path -LiteralPath $shotsDir -PathType Container)) { $violations.Add("missing: $shotsDir (run install-jobrunner.ps1 again)") }
+else {
+    $lines = Get-AclLines -Path $shotsDir
+    foreach ($l in $lines) { Write-Host "  ACL $shotsDir : $l" }
+    $agentRead = $false
+    foreach ($l in $lines) {
+        if ($l -match [regex]::Escape($AgentUser)) {
+            if ($l -match '\((F|M|W|WD|AD|DC|WDAC|WO|GA|GW)\)' -or $l -notmatch '\((R|RX)\)') { $violations.Add("$shotsDir gives the agent user more than Read: $l") } else { $agentRead = $true }
+        } elseif ($l -match '(?i)\b(Everyone|Authenticated Users|BUILTIN\\Users)\b') { $violations.Add("$shotsDir has an ACE for a broad group: $l") }
+    }
+    if (-not $agentRead) { $violations.Add("$shotsDir has no Read ACE for the agent user (the web UI cannot show the screenshots)") }
+}
+if (Test-Path -LiteralPath $profileDir -PathType Container) {
+    $lines = Get-AclLines -Path $profileDir
+    foreach ($l in $lines) { Write-Host "  ACL $profileDir : $l" }
+    foreach ($l in $lines) {
+        if ($l -match [regex]::Escape($AgentUser) -or $l -match '(?i)\b(Everyone|Authenticated Users|BUILTIN\\Users)\b') { $violations.Add("$profileDir has an ACE for the agent user or a broad group: $l") }
+    }
+} else { Write-Host "  browser\profile does not exist yet (created at the first browser job or browser-login)" }
+
 # the task
 $task = $null
 try { $task = Get-ScheduledTask -TaskPath $TaskPath -TaskName $TaskName -ErrorAction Stop } catch { $task = $null }
@@ -90,5 +113,5 @@ if ($violations.Count -gt 0) {
     foreach ($v in $violations) { Write-Host "VIOLATION  $v" }
     exit 1
 }
-Write-Host 'PASS: the job runner listens on 127.0.0.1 only, its secrets are closed to the agent user, and the task exists.'
+Write-Host 'PASS: the job runner listens on 127.0.0.1 only, its secrets are closed to the agent user, browser\shots is read only for it, and the task exists.'
 exit 0

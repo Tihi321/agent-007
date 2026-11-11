@@ -16,6 +16,10 @@
        and only then is the content written: ipcHmacKey copied from the agent's secrets.json (generated once by
        deploy\new-secrets.ps1; never printed), and the DeepSeek key typed at a hidden prompt (Read-Host -AsSecureString;
        Enter keeps the stored value or skips it) [UI-14].
+    3b. Creates <DataDir>\browser\shots (REQ-0014, the browser engine's screenshots) with its own exact ACL: inheritance off,
+       SYSTEM F, Administrators F, main user Modify, agent user READ only, inheritable. <DataDir>\browser\profile and
+       <DataDir>\browser\ms-playwright are created by the runner and stay on the data folder ACL (no ACE for the agent user).
+       The script then prints the "paths.jobArtifactsDir" line the administrator adds to the agent's config.json.
     5. Registers the scheduled task \agent-007\jobrunner: trigger AT LOGON of the main user, principal the main user
        (Interactive, Limited), MultipleInstances IgnoreNew, restart on failure. The script never starts the task.
 
@@ -86,6 +90,8 @@ $jobRunnerDir = Join-WinPath $ProgramDataDir 'jobrunner'
 $templatesDir = Join-WinPath $ProgramDataDir 'jobrunner', 'templates'
 $configFile = Join-WinPath $ProgramDataDir 'jobrunner', 'jobrunner.json'
 $secretsFile = Join-WinPath $DataDir 'secrets.json'
+$browserDir = Join-WinPath $DataDir 'browser'
+$shotsDir = Join-WinPath $DataDir 'browser', 'shots'
 $mainJs = Join-WinPath $ProgramFilesDir 'dist', 'src', 'jobrunner', 'main.js'
 $exampleConfig = Join-WinPath $RepoRoot 'config', 'jobrunner.example.json'
 $templateSource = Join-WinPath $RepoRoot 'config', 'templates'
@@ -109,7 +115,7 @@ $mainAcct = $MainUser
 
 Write-Host "agent-007 S11.6: job runner install for $MainUser$(if ($dry) { ' (dry run)' })"
 Write-Host "  config folder : $jobRunnerDir (agent user: NO access; templates\ read only)"
-Write-Host "  data folder   : $DataDir (main user only; the agent user has no access)"
+Write-Host "  data folder   : $DataDir (main user only; the agent user has no access, except Read on browser\shots)"
 Write-Host "  code          : $mainJs"
 Write-Host "  task          : $TaskPath$TaskName at logon of $MainUser"
 
@@ -135,6 +141,14 @@ function Set-JobRunnerDataDirAcl {
         (New-AclEntry -Sid $script:SidSystem -Rights 'FullControl'),
         (New-AclEntry -Sid $script:SidAdministrators -Rights 'FullControl'),
         (New-AclEntry -Account $Main -Rights 'FullControl'))
+}
+function Set-JobRunnerArtifactsDirAcl {
+    param([string]$Path, [string]$Main, [string]$Agent)
+    Set-ExactAcl -Path $Path -Entries @(
+        (New-AclEntry -Sid $script:SidSystem -Rights 'FullControl'),
+        (New-AclEntry -Sid $script:SidAdministrators -Rights 'FullControl'),
+        (New-AclEntry -Account $Main -Rights 'Modify'),
+        (New-AclEntry -Account $Agent -Rights 'Read'))
 }
 function Set-JobRunnerSecretFileAcl {
     param([string]$Path, [string]$Main)
@@ -183,6 +197,16 @@ Invoke-Step -DryRun:$dry -Description "create folder $DataDir" -Action {
 Invoke-Step -DryRun:$dry -Description "SET ACL on $DataDir (inheritance off, SYSTEM F, Administrators F, $MainUser F, no ACE for $AgentUser)" -Action {
     Set-JobRunnerDataDirAcl -Path $DataDir -Main $mainAcct
 }
+
+# ---- 3b. the browser engine's screenshot folder (REQ-0014) ------------------------------------
+Invoke-Step -DryRun:$dry -Description "create folder $shotsDir" -Action {
+    if (-not (Test-Path -LiteralPath $shotsDir -PathType Container)) { New-Item -ItemType Directory -Path $shotsDir -Force | Out-Null }
+}
+Invoke-Step -DryRun:$dry -Description "SET ACL on $shotsDir (inheritance off, SYSTEM F, Administrators F, $MainUser Modify, $AgentUser Read only, inheritable; $browserDir\profile and $browserDir\ms-playwright keep the data folder ACL, no ACE for $AgentUser)" -Action {
+    Set-JobRunnerArtifactsDirAcl -Path $shotsDir -Main $mainAcct -Agent $AgentUser
+}
+Write-Host "  browser shots : add this to the agent's config.json (paths section) so its web UI can show the screenshots:"
+Write-Host "                  `"jobArtifactsDir`": `"$($shotsDir.Replace('\', '\\'))`""
 
 # ---- 4. secrets.json: empty file, ACL, and only then the content ------------------------------
 if ($SkipSecrets) {

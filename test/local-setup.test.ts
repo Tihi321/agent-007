@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -92,6 +92,12 @@ test("ensureJobrunner creates the config and the secrets (ACL first), shares the
   assert.ok(cfg.paths.dataDir.startsWith(dir) && cfg.paths.configDir.startsWith(dir));
   assert.equal((JSON.parse(readFileSync(a.secretsPath, "utf8")) as { ipcHmacKey: string }).ipcHmacKey, agentKey);
   assert.equal(acl.calls.filter((c) => c.path === a.secretsPath)[0]?.size, 0, "ACL set while the file is empty");
+  // REQ-0014: the browser template (cwd = the workspace), the shots folder, and paths.jobArtifactsDir in the agent's config.json
+  const shots = join(dir, "jobrunner-data", "browser", "shots");
+  const tpl = JSON.parse(readFileSync(join(dir, "jobrunner", "templates", "browser-session.json"), "utf8")) as { id: string; engine: string; cwd: string };
+  assert.deepEqual([tpl.id, tpl.engine, tpl.cwd], ["browser-session", "browser", join(dir, "data", "workspace")]);
+  assert.ok(existsSync(shots));
+  assert.equal((JSON.parse(readFileSync(set.configPath, "utf8")) as { paths: { jobArtifactsDir: string } }).paths.jobArtifactsDir, shots);
   const before = readFileSync(a.secretsPath, "utf8");
   assert.deepEqual(ensureJobrunner(dir, { resourcesDir: process.cwd(), icacls: acl.run }).created, []);
   assert.equal(readFileSync(a.secretsPath, "utf8"), before);
