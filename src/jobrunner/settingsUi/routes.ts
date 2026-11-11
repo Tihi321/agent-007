@@ -243,10 +243,11 @@ export function createRoutes(deps: RoutesDeps): Record<string, Route> {
           formNote = `ack: ${form.ack.text.slice(0, 180)}`;
         }
       }
-      // `termsAccepted` is set only through a form that carries the acknowledgment text, and only with `ack: true` (I41, UI-24)
-      if (Object.keys(secs.sections).includes("termsAccepted")) {
+      // `termsAccepted` and `browser` (REQ-0014) are set only through a form that carries the acknowledgment text, and only with `ack: true` (I41, UI-24)
+      const ackSection = ["termsAccepted", "browser"].find((k) => Object.keys(secs.sections).includes(k));
+      if (ackSection) {
         const f = typeof body["formId"] === "string" ? deps.forms.get(body["formId"]) : undefined;
-        if (!f?.ack) return err(422, "ack_required", "termsAccepted can be saved only through its own form, with the acknowledgment");
+        if (!f?.ack) return err(422, "ack_required", `${ackSection} can be saved only through its own form, with the acknowledgment`);
         if (body["ack"] !== true) return err(422, "ack_required", f.ack.text);
       }
       let cur: ReturnType<typeof readSecurity>;
