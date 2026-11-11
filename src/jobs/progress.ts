@@ -79,6 +79,8 @@ export function eventLine(e: JobEvent): string {
       return `flow call ${e.tool}: max_credits ${e.maxCredits} ${e.allowed ? "allowed" : "blocked"} (charged ${e.chargedTotal}, ${e.remaining} left)`;
     case "result":
       return `result: ${clip(e.text, 200)}`;
+    case "artifact":
+      return `screenshot ${e.artifact.path}`;
   }
 }
 

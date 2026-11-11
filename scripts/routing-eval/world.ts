@@ -46,6 +46,7 @@ class DenyAllTransport implements JobApprovalTransport {
   }
   async postProgress(): Promise<void> {}
   async postFinal(): Promise<void> {}
+  async postArtifact(): Promise<void> {}
 }
 
 export interface EvalWorld {

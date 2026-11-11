@@ -31,6 +31,7 @@ export const CLOUD_LABELS: Record<CloudUse, string> = {
   "claude-subscription": "Claude subscription",
   "deepseek-api": "DeepSeek API",
   "google-flow": "Google Flow",
+  "web-browsing": "the web (headless Chromium with your logged-in sessions; risky steps ask again)",
 };
 
 /** Cloud services a template uses: what the runner says, plus Flow when the template spends credits. */

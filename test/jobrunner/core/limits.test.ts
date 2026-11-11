@@ -22,7 +22,7 @@ test("defaults: creative-hub is the only allowed cwd, dsh is off, one job per en
   assert.equal(c.engines.dsh.enabled, false);
   assert.equal(c.engines.dsh.verified, false);
   assert.equal(c.engines.claude.enabled, true);
-  assert.deepEqual(c.limits.maxConcurrent, { claude: 1, dsh: 1, hub: 1 });
+  assert.deepEqual(c.limits.maxConcurrent, { claude: 1, dsh: 1, hub: 1, browser: 1 });
   assert.equal(c.limits.dailyCreditCap, 0, "no default Flow budget (D11)");
   assert.equal(c.paths.dataDir, "C:\\Users\\me\\AppData\\Local\\agent-007-jobrunner");
   assert.equal(c.paths.templatesDir, "C:\\ProgramData\\agent-007\\jobrunner\\templates");

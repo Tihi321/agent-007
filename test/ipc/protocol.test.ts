@@ -42,10 +42,10 @@ function reason(fn: () => unknown): RejectReason {
 }
 const line = (m: IpcMessage): string => JSON.stringify(m);
 
-test("the message types are exactly the plan's six requests plus flow_estimate, four events and the reply", () => {
-  assert.deepEqual([...REQUEST_TYPES], ["submit", "cancel", "status", "list_templates", "hub_status", "hub_start", "flow_estimate"]);
+test("the message types are exactly the plan's six requests plus flow_estimate and browser_action, four events and the reply", () => {
+  assert.deepEqual([...REQUEST_TYPES], ["submit", "cancel", "status", "list_templates", "hub_status", "hub_start", "flow_estimate", "browser_action"]);
   assert.deepEqual([...EVENT_TYPES], ["job_event", "permission_request", "permission_decision", "job_done"]);
-  assert.equal(MESSAGE_TYPES.length, 12);
+  assert.equal(MESSAGE_TYPES.length, 13);
   // direction: the runner never accepts runner-to-agent pushes, the agent never accepts requests
   assert.equal(SERVER_ACCEPTS.has("job_event"), false);
   assert.equal(SERVER_ACCEPTS.has("job_done"), false);

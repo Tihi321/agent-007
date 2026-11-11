@@ -40,6 +40,7 @@ import type {
   SubmitBody,
   SubmitReply,
 } from "../jobs/contracts.js";
+import type { BrowserActionBody, BrowserActionReply } from "../jobs/browserContracts.js";
 import { bodyHash, computeMac, randomToken, signingString, verifyMac } from "./hmac.js";
 import type { IpcKey, KeyCandidate, SignedFields } from "./hmac.js";
 
@@ -57,7 +58,7 @@ export const IPC_HOST = "127.0.0.1";
 // ---- message types ---------------------------------------------------------------------------------
 
 /** Agent to runner, answered by a `reply`. */
-export const REQUEST_TYPES = ["submit", "cancel", "status", "list_templates", "hub_status", "hub_start", "flow_estimate"] as const;
+export const REQUEST_TYPES = ["submit", "cancel", "status", "list_templates", "hub_status", "hub_start", "flow_estimate", "browser_action"] as const;
 /** Pushes and decisions: `job_event`, `permission_request` and `job_done` go runner to agent; `permission_decision` agent to runner. */
 export const EVENT_TYPES = ["job_event", "permission_request", "permission_decision", "job_done"] as const;
 export const REPLY_TYPE = "reply" as const;
@@ -83,6 +84,7 @@ export interface RequestMap {
   hub_status: { body: HubStatusBody; reply: HubStatusReply };
   hub_start: { body: HubStartBody; reply: HubStartReply };
   flow_estimate: { body: FlowEstimateBody; reply: FlowEstimateReply };
+  browser_action: { body: BrowserActionBody; reply: BrowserActionReply };
 }
 /** The helper's `permission_request` (to the runner, signed with the per-job token) and its reply. */
 export interface HelperRequest {
@@ -110,6 +112,7 @@ export type IpcErrorCode =
   | "not_found"
   | "forbidden"
   | "unsupported"
+  | "not_running"
   | "internal";
 
 /** The body of a `reply`. `replyTo` is the `id` of the request. */

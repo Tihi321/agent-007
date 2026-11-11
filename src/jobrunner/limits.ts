@@ -203,6 +203,7 @@ export function parseJobRunnerConfig(raw: unknown, env: ConfigEnv = {}): JobRunn
       claude: r.int(concRaw["claude"], "limits.maxConcurrent.claude", 1, 1, 4),
       dsh: r.int(concRaw["dsh"], "limits.maxConcurrent.dsh", 1, 1, 4),
       hub: r.int(concRaw["hub"], "limits.maxConcurrent.hub", 1, 1, 4),
+      browser: r.int(concRaw["browser"], "limits.maxConcurrent.browser", 1, 1, 1),
     },
     maxDurationMin: r.int(limRaw["maxDurationMin"], "limits.maxDurationMin", 360, 1, 1440),
     outputCapBytes: r.int(limRaw["outputCapBytes"], "limits.outputCapBytes", 5 * 1024 * 1024, 1024, 512 * 1024 * 1024),
@@ -224,7 +225,7 @@ export function parseJobRunnerConfig(raw: unknown, env: ConfigEnv = {}): JobRunn
     return out;
   };
   // dsh is off until S13.4 and the live probe (S13.2); everything else is on.
-  const engines: Record<JobEngine, EngineConfig> = { claude: engOne("claude", true), dsh: engOne("dsh", false), hub: engOne("hub", true) };
+  const engines: Record<JobEngine, EngineConfig> = { claude: engOne("claude", true), dsh: engOne("dsh", false), hub: engOne("hub", true), browser: engOne("browser", true) };
 
   const cwdAllowlist = r.pathList(top["cwdAllowlist"], "cwdAllowlist", [DEFAULT_HUB_DIR], true);
   const denyPaths = r.pathList(top["denyPaths"], "denyPaths", ["C:\\Pixotope", "C:\\ProgramData\\agent-007"], false);

@@ -187,6 +187,8 @@ export function createHandler(manager: JobManager, brokers: readonly Pick<Permis
         return (await manager.hubStart(parseHubStartBody(body))) as unknown as Json;
       case "flow_estimate":
         return (await manager.flowEstimate(parseFlowEstimateBody(body))) as unknown as Json;
+      case "browser_action":
+        throw new IpcHandlerError("unsupported", "the browser engine is not wired yet");
       case "permission_decision":
         manager.decidePermission(parseDecision(body));
         return undefined;

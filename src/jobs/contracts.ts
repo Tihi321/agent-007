@@ -12,6 +12,9 @@
  * The wire format is src/ipc/protocol.ts; its message bodies are the `*Body` / `*Reply` types here.
  */
 
+import { BROWSER_TOOL_NAMES } from "./browserContracts.js";
+import type { BrowserActionBody, BrowserActionReply } from "./browserContracts.js";
+
 // ---- JSON --------------------------------------------------------------------------------------
 
 export type Json = null | boolean | number | string | Json[] | { [key: string]: Json };
@@ -52,6 +55,7 @@ export const DEFERRED_KNOWN_TOOLS = [
   "switch_persona",
   "ask_bot",
   "list_bots",
+  ...BROWSER_TOOL_NAMES,
 ] as const;
 
 /** The two fields of a tool registration the cap check reads (`ToolRegistration` from the adapter fits). */
@@ -94,11 +98,11 @@ export function checkToolCap(tools: Iterable<ToolLike>, opts: { subset?: boolean
 
 // ---- templates -------------------------------------------------------------------------------------
 
-export type JobEngine = "claude" | "dsh" | "hub";
-export const JOB_ENGINES: readonly JobEngine[] = ["claude", "dsh", "hub"];
+export type JobEngine = "claude" | "dsh" | "hub" | "browser";
+export const JOB_ENGINES: readonly JobEngine[] = ["claude", "dsh", "hub", "browser"];
 /** `bypassPermissions`, `auto` and `acceptEdits` are not representable: the loader refuses them (S11.2). */
 export type JobPermissionMode = "default" | "dontAsk";
-export type CloudUse = "claude-subscription" | "deepseek-api" | "google-flow";
+export type CloudUse = "claude-subscription" | "deepseek-api" | "google-flow" | "web-browsing";
 
 export interface JobTemplateFlow {
   enabled: boolean;
@@ -213,6 +217,7 @@ export type JobEvent = JobEventBase &
     | { kind: "retry"; attempt: number; reason: string }
     | { kind: "flow_call"; tool: string; maxCredits: number; allowed: boolean; chargedTotal: number; remaining: number }
     | { kind: "result"; text: string; costUsd?: number; durationMs?: number; permissionDenials?: number }
+    | { kind: "artifact"; artifact: ArtifactRef }
   );
 export type JobEventKind = JobEvent["kind"];
 
@@ -259,7 +264,27 @@ export interface JobSnapshot {
 
 // ---- permissions (S12.3, S13.3) --------------------------------------------------------------------
 
-export type PermissionKind = "execute" | "read" | "edit" | "flow" | "other";
+export type PermissionKind = "execute" | "read" | "edit" | "flow" | "browser" | "other";
+
+/** A file the runner wrote under its artifacts root. `path` is RELATIVE: `<jobId>/<NNN>.png`. Never an absolute path. */
+export interface ArtifactRef {
+  /** /^job-[0-9a-f]{12}\/\d{3}\.png$/ for screenshots (jobIdFor format, src/jobs/tools.ts:265). */
+  path: string;
+  mime: "image/png";
+  /** <= 5 MiB */
+  bytes: number;
+  /** Hex of the file. */
+  sha256: string;
+  /** <= 200 chars, no query string or fragment of any URL. */
+  caption: string;
+}
+
+export interface JobArtifactPost {
+  jobId: string;
+  conversationId: string;
+  artifact: ArtifactRef;
+  index: number;
+}
 
 /** Runner to agent. The runner fills `engine`, `cwd`, `kind`, `requestedAt` and `timeoutSec` before forwarding. */
 export interface PermissionRequest {
@@ -272,6 +297,8 @@ export interface PermissionRequest {
   kind: PermissionKind;
   /** One line for the card, built by the driver. */
   summary?: string;
+  /** At most 1: the page as it is when the card is sent. */
+  attachments?: ArtifactRef[];
   requestedAt: number;
   timeoutSec: number;
 }
@@ -488,6 +515,8 @@ export interface JobRunnerClient {
   hubStart(body: HubStartBody, opts?: CallOptions): Promise<HubStartReply>;
   /** Read-only: asks the job runner to run the template's Flow estimator (S14.4). */
   flowEstimate(body: FlowEstimateBody, opts?: CallOptions): Promise<FlowEstimateReply>;
+  /** One step of a running browser job (the caller passes `opts.timeoutMs`; an asked step can take the approval timeout). */
+  browserAction(body: BrowserActionBody, opts?: CallOptions): Promise<BrowserActionReply>;
   /** Fire and forget; rejects only when offline. */
   answerPermission(decision: PermissionDecision): Promise<void>;
   onJobEvent(cb: (event: JobEvent) => void): Unsubscribe;
@@ -554,4 +583,6 @@ export interface JobApprovalTransport {
   requestPermission(req: PermissionRequest, conversationId: string, signal: AbortSignal): Promise<PermissionDecision>;
   postProgress(update: JobProgressUpdate): Promise<void>;
   postFinal(done: JobDone, conversationId: string): Promise<void>;
+  /** A file the runner wrote for the job (a browser screenshot). */
+  postArtifact(post: JobArtifactPost): Promise<void>;
 }

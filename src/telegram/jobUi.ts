@@ -23,6 +23,7 @@ import type {
   JobApprovalCard,
   JobApprovalDecision,
   JobApprovalTransport,
+  JobArtifactPost,
   JobDone,
   JobProgressUpdate,
   PermissionDecision,
@@ -452,6 +453,9 @@ export class TelegramJobUi implements JobApprovalTransport {
       throw e;
     }
   }
+
+  /** REQ-0014 T1 stub: T7 sends the photo. */
+  async postArtifact(_post: JobArtifactPost): Promise<void> {}
 
   async postFinal(done: JobDone, conversationId: string): Promise<void> {
     const chatId = this.#chatOrUndefined(conversationId);

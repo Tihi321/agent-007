@@ -3,6 +3,7 @@
  * these instead of a real job runner: `FakeJobRunnerClient` implements `JobRunnerClient`, `FakeJobApprovalTransport`
  * implements `JobApprovalTransport`. Not a test file.
  */
+import type { BrowserActionBody, BrowserActionReply } from "../../src/jobs/browserContracts.js";
 import type {
   CallOptions,
   CancelBody,
@@ -16,6 +17,7 @@ import type {
   JobApprovalCard,
   JobApprovalDecision,
   JobApprovalTransport,
+  JobArtifactPost,
   JobDone,
   JobEvent,
   JobProgressUpdate,
@@ -44,6 +46,7 @@ export interface FakeJobRunnerHandlers {
   hubStatus?: () => HubStatusReply | Promise<HubStatusReply>;
   hubStart?: (body: HubStartBody) => HubStartReply | Promise<HubStartReply>;
   flowEstimate?: (body: FlowEstimateBody) => FlowEstimateReply | Promise<FlowEstimateReply>;
+  browserAction?: (body: BrowserActionBody) => BrowserActionReply | Promise<BrowserActionReply>;
 }
 
 export const EMPTY_STATUS: StatusReply = {
@@ -137,6 +140,9 @@ export class FakeJobRunnerClient implements JobRunnerClient {
   flowEstimate(body: FlowEstimateBody): Promise<FlowEstimateReply> {
     return this.run("flowEstimate", body, this.handlers.flowEstimate ? () => this.handlers.flowEstimate!(body) : undefined, { credits: 23, videoCredits: 18, reserve: 5, runDir: "runs/x/video" });
   }
+  browserAction(body: BrowserActionBody): Promise<BrowserActionReply> {
+    return this.run("browserAction", body, this.handlers.browserAction ? () => this.handlers.browserAction!(body) : undefined, { outcome: "done", message: "ok" });
+  }
   async answerPermission(decision: PermissionDecision): Promise<void> {
     this.calls.push({ method: "answerPermission", arg: decision });
     if (this.state !== "online") throw new FakeOfflineError();
@@ -168,6 +174,7 @@ export class FakeJobApprovalTransport implements JobApprovalTransport {
   readonly permissionRequests: PermissionRequest[] = [];
   readonly progress: JobProgressUpdate[] = [];
   readonly finals: { done: JobDone; conversationId: string }[] = [];
+  readonly artifacts: JobArtifactPost[] = [];
   /** Answers consumed in order by `requestJobApproval` and `requestHubStartApproval`. */
   approvals: Partial<JobApprovalDecision>[] = [];
   /** Answers consumed in order by `requestPermission`. */
@@ -196,5 +203,8 @@ export class FakeJobApprovalTransport implements JobApprovalTransport {
   }
   async postFinal(done: JobDone, conversationId: string): Promise<void> {
     this.finals.push({ done, conversationId });
+  }
+  async postArtifact(post: JobArtifactPost): Promise<void> {
+    this.artifacts.push(post);
   }
 }

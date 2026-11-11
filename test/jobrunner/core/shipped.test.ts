@@ -13,7 +13,7 @@ test("config/jobrunner.example.json parses (underscore keys are comments) and sa
   assert.deepEqual(c.cwdAllowlist, ["C:\\projects\\Personal\\creative-hub"]);
   assert.equal(c.engines.dsh.enabled, false);
   assert.equal(c.engines.dsh.verified, false);
-  assert.deepEqual(c.limits.maxConcurrent, { claude: 1, dsh: 1, hub: 1 });
+  assert.deepEqual(c.limits.maxConcurrent, { claude: 1, dsh: 1, hub: 1, browser: 1 });
   assert.equal(c.ipcPort, 47007);
   assert.ok(c.denyPaths.includes("C:\\Pixotope"));
 });

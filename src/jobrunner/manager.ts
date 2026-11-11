@@ -190,7 +190,7 @@ export class JobManager {
   private readonly now: () => number;
   private readonly records = new Map<string, JobRecord>();
   private readonly active = new Map<string, Active>();
-  private readonly queues: Record<JobEngine, string[]> = { claude: [], dsh: [], hub: [] };
+  private readonly queues: Record<JobEngine, string[]> = { claude: [], dsh: [], hub: [], browser: [] };
   private readonly versions: Partial<Record<JobEngine, string>> = {};
   private notifier: JobNotifier | undefined;
   private stopping = false;
@@ -898,6 +898,7 @@ export class JobManager {
 
   private engineEnabled(engine: JobEngine): boolean {
     const c = this.o.config.engines[engine];
+    if (engine === "browser") return false; // REQ-0014 T1 stub: T4 wires the driver and the acknowledgment
     if (!c.enabled || this.o.drivers[engine] === undefined) return false;
     return engine !== "dsh" || c.verified === true;
   }
