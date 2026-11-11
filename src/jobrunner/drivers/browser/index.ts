@@ -1,11 +1,16 @@
-/** REQ-0014 browser engine driver. T1 stub: T3 replaces `createDriver` (may move the class into `driver.ts`), keeps these exports. */
+/** REQ-0014 browser engine driver. The types below are the contract with T4 (unchanged from T1); the class is in `driver.ts`. */
 import type { BrowserActionBody, BrowserActionReply } from "../../../jobs/browserContracts.js";
 import type { EngineDriver } from "../../../jobs/contracts.js";
+import { readBrowserSettings } from "../../../settings/browser.js";
 import type { BrowserSettings } from "../../../settings/browser.js";
 import type { DriverFactoryContext } from "../../main.js";
 import type { CoreEngineHost } from "../../manager.js";
 import type { BrowserBackend } from "./backend.js";
+import { BrowserDriver } from "./driver.js";
+import { startEgressProxy } from "./egress.js";
 import type { EgressOptions, EgressProxy } from "./egress.js";
+import { createChromiumInstaller, resolveBrowserPaths } from "./install.js";
+import { PlaywrightBackend } from "./playwright.js";
 
 export interface BrowserEngineDriver extends EngineDriver {
   readonly engine: "browser";
@@ -30,6 +35,30 @@ export interface BrowserDriverDeps {
   now?: () => number;
 }
 
-export function createDriver(_ctx: DriverFactoryContext): BrowserEngineDriver {
-  throw new Error("not implemented: T3");
+/** Optional `engines.browser` keys that T4 adds to `jobrunner.json`; defaults sit under `<dataDir>\browser\`. */
+interface BrowserEngineConfig {
+  headless?: boolean;
+  profileDir?: string;
+  artifactsDir?: string;
+  browsersDir?: string;
+  idleMin?: number;
+}
+
+/** Builds the browser driver. Loads nothing heavy: `playwright-core` is imported at the first launch. */
+export function createDriver(ctx: DriverFactoryContext): BrowserEngineDriver {
+  const cfg = ctx.config.engines.browser as BrowserEngineConfig;
+  const paths = resolveBrowserPaths(ctx.dataDir, cfg);
+  const settings = (): BrowserSettings => readBrowserSettings(ctx.config.paths.settingsDir);
+  return new BrowserDriver(
+    {
+      backend: new PlaywrightBackend({ settings }),
+      paths,
+      headless: cfg.headless ?? true,
+      idleMin: cfg.idleMin ?? 10,
+      settings,
+      installer: createChromiumInstaller({ browsersDir: paths.browsersDir }),
+      egress: (o) => startEgressProxy(o),
+    },
+    { logger: ctx.logger, redact: ctx.redact },
+  );
 }
