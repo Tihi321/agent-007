@@ -25,6 +25,7 @@ function hostExtensions(): Extension[] {
     defineExtension({ name: "a7", tools: pick(["system_facts", "list_dir", "read_file", "search_files", "write_file", "remember", "shell"]), hooks: [guard] }),
     defineExtension({ name: "tool-search", tools: pick(["tool_search"]) }),
     defineExtension({ name: "a7-jobs", tools: pick(["dispatch_job", "job_status", "cancel_job", "list_templates", "ask_user", "hub_status", "hub_start"]) }),
+    defineExtension({ name: "a7-browser", tools: pick(["browser_goto", "browser_back", "browser_read", "browser_click", "browser_type", "browser_fill", "browser_press", "browser_screenshot", "browser_done"]) }),
     defineExtension({ name: "a7-settings", tools: pick(["get_settings", "list_personas", "propose_setting", "propose_persona", "switch_persona"]) }),
     defineExtension({ name: "mcp", tools: pick(["tts_line", "chiptune_loop", "comfy_image", "mcp__vibetts__speak"]) }),
     defineExtension({ name: "a7-bots", tools: pick([...BOT_BUS_TOOLS]) }),

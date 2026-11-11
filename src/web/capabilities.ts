@@ -28,6 +28,15 @@ export const HOST_TOOL_NAMES: readonly string[] = [
   "list_personas",
   "ask_second_opinion",
   "web_fetch",
+  "browser_goto",
+  "browser_back",
+  "browser_read",
+  "browser_click",
+  "browser_type",
+  "browser_fill",
+  "browser_press",
+  "browser_screenshot",
+  "browser_done",
 ];
 
 /** The most tools a user bot may load at once (I27 is 10 per bot). */

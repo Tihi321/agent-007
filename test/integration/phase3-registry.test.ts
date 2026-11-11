@@ -54,7 +54,7 @@ test("the host registry: exactly the 10 always-loaded tools are non-deferred, th
     assert.deepEqual(registered, KNOWN_TOOLS.filter((n) => !MACRO_TOOLS.includes(n)).sort());
     assert.deepEqual(
       rig.agent.registry.snapshot().installed().map((e) => e.name),
-      ["a7", "tool-search", "mcp", "a7-jobs", "a7-settings"],
+      ["a7", "tool-search", "mcp", "a7-jobs", "a7-browser", "a7-settings"],
     );
     // and the model is offered exactly the 10 on a real request
     await rig.say("hello", 1);
