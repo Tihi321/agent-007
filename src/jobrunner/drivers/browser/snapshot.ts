@@ -111,6 +111,7 @@ const FACTS_OF = `
       formHasPassword: !!form && form.querySelector('input[type=password]') !== null,
       href: anchor ? String(anchor.href || '') : '',
       contentEditable: el.isContentEditable === true,
+      multiline: tag === 'textarea' || (roleOf(el) === 'textbox' && el.getAttribute('aria-multiline') === 'true'),
       visible: isVisible(el),
     };
   };

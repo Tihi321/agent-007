@@ -33,6 +33,7 @@ export function facts(over: Partial<ElementFacts> & { ref: string }): ElementFac
     formHasPassword: false,
     href: "",
     contentEditable: false,
+    multiline: false,
     visible: true,
     ...over,
   };

@@ -199,7 +199,7 @@ const CHANGED_MESSAGE = "the page changed while waiting for approval; read it ag
 
 function sameElement(a: ElementFacts | undefined, b: ElementFacts | undefined): boolean {
   if (a === undefined || b === undefined) return a === b;
-  return a.tag === b.tag && a.name === b.name && a.isSubmit === b.isSubmit;
+  return a.tag === b.tag && a.name === b.name && a.isSubmit === b.isSubmit && a.href === b.href && a.formAction === b.formAction;
 }
 
 function oneLine(s: string, n = 300): string {
@@ -519,7 +519,8 @@ export class BrowserDriver implements BrowserEngineDriver {
         now = { verdict: "refuse", reason: "settings unreadable" };
       }
       const same = again.facts.length === facts.length && facts.every((f, i) => sameElement(f, again.facts[i]));
-      if (now.verdict === "refuse" || !same || (again.unreadable && !unreadable)) return { outcome: "denied", message: CHANGED_MESSAGE };
+      const otherReason = now.verdict === "ask" && !unreadable && now.reason !== verdict.reason;
+      if (now.verdict === "refuse" || !same || otherReason || (again.unreadable && !unreadable)) return { outcome: "denied", message: CHANGED_MESSAGE };
       return this.perform(run, session, action, again.refs.length > 0 ? again.refs : refs);
     }
     return this.perform(run, session, action, refs);

@@ -21,6 +21,12 @@ function credentialFieldTest(f: { type: string; autocomplete: string; nameAttr: 
   const ac = String(f.autocomplete).toLowerCase();
   for (const t of ["password", "one-time-code", "cc-number", "cc-csc", "cc-exp"]) if (ac.includes(t)) return true;
   const nameHit = (raw: string): boolean => {
+    const flat = String(raw).toLowerCase();
+    // unambiguous tokens: a substring anywhere ("newpwd", "passphrase"); a bare "pass" is not a token (passenger, passport)
+    if (/password|passwd|passphrase|passwort|pwd|cvv|cvc|iban|totp|creditcard|cardnumber/.test(flat)) return true;
+    // short ambiguous tokens: only at the start or end of the name (otpcode, smsotp, userpin, ssnlast4). "pinterest" is
+    // refused too; that fails safe, so it is accepted.
+    if (/^(otp|pin|ssn)|(otp|pin|ssn)\d*$/.test(flat)) return true;
     const words = String(raw)
       .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
       .toLowerCase()
@@ -134,6 +140,10 @@ export function classifyAction(
   if (wanted > 0 && (facts.length < wanted || facts.some((f) => f === undefined))) {
     return { verdict: "refuse", reason: "that element is not in the last page snapshot (call browser_read first)" };
   }
+  // 2b focus or target inside an embedded frame: the runner cannot see inside it
+  if ((action.op === "press" || action.op === "type" || action.op === "click") && known.some((f) => f.tag === "iframe" || f.tag === "frame")) {
+    return { verdict: "ask", reason: "focus is inside an embedded frame (for example a payment widget)" };
+  }
   // 3 owner-listed hosts: every write action asks
   if (!READ_ONLY_OPS.has(action.op) && host !== "" && hostMatches(host, settings.askDomains)) {
     return { verdict: "ask", reason: `the owner listed ${host} as always-ask` };
@@ -149,6 +159,7 @@ export function classifyAction(
     const f = known[0];
     if (f === undefined) return { verdict: "ask", reason: "Enter with no known target element" };
     if (f.inForm) return { verdict: "ask", reason: "Enter in a form submits it" };
+    if (f.contentEditable || f.multiline) return { verdict: "ask", reason: "Enter may send a message" };
   }
   if (action.op === "fill" && known.some((f) => riskyContext(f, path))) {
     return { verdict: "ask", reason: "this fills a login, payment or personal-data form" };

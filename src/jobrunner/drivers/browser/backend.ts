@@ -36,6 +36,8 @@ export interface ElementFacts {
   formHasPassword: boolean;
   href: string;
   contentEditable: boolean;
+  /** textarea, or role=textbox with aria-multiline=true */
+  multiline: boolean;
   visible: boolean;
 }
 

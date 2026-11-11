@@ -98,5 +98,13 @@ test("a newline in typed text is refused; Enter is judged on the focused element
   assert.equal(changed.outcome, "denied");
   assert.match(changed.message ?? "", /page changed while waiting/);
   assert.equal(session.count("click"), 0);
+
+  r.host.answer = () => {
+    link.href = "https://evil.example.net/";
+    return "allow_once";
+  };
+  const moved = await act(r, { op: "click", ref: "e1" });
+  assert.equal(moved.outcome, "denied", "a changed href cancels the approved action");
+  assert.equal(session.count("click"), 0);
   await r.finish();
 });
