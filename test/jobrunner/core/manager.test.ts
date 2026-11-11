@@ -10,7 +10,8 @@ import { BRIEF_END, BRIEF_START, TemplateRegistry } from "../../../src/jobrunner
 import { isProcessAlive } from "../../../src/jobrunner/proc.js";
 import type { CoreEngineHost } from "../../../src/jobrunner/manager.js";
 import type { JobEvent } from "../../../src/jobs/contracts.js";
-import { claudeTemplate, flowTemplate, makeEnv, makeRig, sleep, submitBody, waitFor } from "./helpers.js";
+import type { BrowserActionBody, BrowserActionReply } from "../../../src/jobs/browserContracts.js";
+import { FakeDriver, claudeTemplate, flowTemplate, makeEnv, makeRig, sleep, submitBody, waitFor } from "./helpers.js";
 import type { FakeJob, Rig } from "./helpers.js";
 
 const IS_WIN = process.platform === "win32";
@@ -680,6 +681,72 @@ test("list_templates: summaries with the cloud list and an enabled flag that fol
     assert.deepEqual(t.map((x) => [x.id, x.enabled]), [["dsh-off", false], ["list-runs", true], ["video-clip", true]]);
     assert.deepEqual(t.find((x) => x.id === "video-clip")?.cloud, ["claude-subscription", "google-flow"]);
     assert.equal(t.find((x) => x.id === "list-runs")?.cwd, env.hub);
+  } finally {
+    env.cleanup();
+  }
+});
+
+function browserTemplate(env: Parameters<typeof claudeTemplate>[0], over: Record<string, unknown> = {}): Record<string, unknown> {
+  return claudeTemplate(env, { id: "browser-session", engine: "browser", allowedTools: [], prompt: "Browse the web.\n{{brief}}", params: { type: "object", properties: {} }, timeoutMin: 60, ...over });
+}
+
+/** A fake browser driver: `act` records the body and, like the real one, emits an `artifact` event for a screenshot. */
+class FakeBrowserDriver extends FakeDriver {
+  acts: BrowserActionBody[] = [];
+  constructor() {
+    super("browser");
+  }
+  act(jobId: string, body: BrowserActionBody, host: CoreEngineHost): Promise<BrowserActionReply> {
+    assert.equal(host.jobId, jobId);
+    this.acts.push(body);
+    if (body.action.op === "screenshot") {
+      const artifact = { path: `${jobId}/001.png`, mime: "image/png" as const, bytes: 10, sha256: "0".repeat(64), caption: "page" };
+      this.job(jobId).emit({ kind: "artifact", artifact });
+      return Promise.resolve({ outcome: "done", shot: artifact });
+    }
+    return Promise.resolve({ outcome: "done", text: "ok" });
+  }
+}
+
+test("browser engine: off until the browser acknowledgment is ticked (engine_disabled names it), then it runs", async () => {
+  const env = makeEnv();
+  let ack = false;
+  const browser = new FakeBrowserDriver();
+  const rig = makeRig({ env, templates: [browserTemplate(env)], drivers: { browser }, overrides: { browserAcknowledged: () => ack } });
+  try {
+    await rejectsWith(rig.manager.submit(submitBody("b1", { templateId: "browser-session", params: {} })), "engine_disabled", /browser acknowledgment is not ticked in the settings UI \(Browser form\)/);
+    assert.equal(rig.manager.status({}).engines.browser?.enabled, false);
+    assert.equal(browser.starts.length, 0);
+    ack = true;
+    assert.equal(rig.manager.status({}).engines.browser?.enabled, true);
+    await rig.manager.submit(submitBody("b2", { templateId: "browser-session", params: {} }));
+    assert.equal(browser.starts.length, 1);
+    browser.job("b2").finish("succeeded", "done");
+    await rig.manager.idle();
+  } finally {
+    env.cleanup();
+  }
+});
+
+test("browserAction: unknown job, a non-browser job and a finished job are refused; a running browser job reaches the driver; artifact paths land in JobDone.artifacts", async () => {
+  const env = makeEnv();
+  const browser = new FakeBrowserDriver();
+  const rig = makeRig({ env, templates: [claudeTemplate(env), browserTemplate(env)], drivers: { browser }, overrides: { browserAcknowledged: () => true } });
+  const body = (jobId: string, action: BrowserActionBody["action"]): BrowserActionBody => ({ jobId, callId: "call-1", action });
+  try {
+    await rejectsWith(rig.manager.browserAction(body("nope", { op: "back" })), "not_found");
+    await rig.manager.submit(submitBody("c1"));
+    await rejectsWith(rig.manager.browserAction(body("c1", { op: "back" })), "unsupported");
+    rig.drivers.claude.job("c1").finish("succeeded", "ok");
+    await rig.manager.submit(submitBody("b1", { templateId: "browser-session", params: {} }));
+    const reply = await rig.manager.browserAction(body("b1", { op: "screenshot" }));
+    assert.equal(reply.outcome, "done");
+    assert.deepEqual(browser.acts.map((a) => a.action.op), ["screenshot"]);
+    browser.job("b1").finish("succeeded", "finished");
+    await rig.manager.idle();
+    await rejectsWith(rig.manager.browserAction(body("b1", { op: "back" })), "not_running");
+    assert.deepEqual(rig.dones.find((d) => d.jobId === "b1")?.artifacts, ["b1/001.png"]);
+    assert.equal(browser.acts.length, 1, "the finished job's action never reached the driver");
   } finally {
     env.cleanup();
   }

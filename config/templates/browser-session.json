@@ -1,0 +1,23 @@
+{
+  "_comment": "REQ-0014. A browser session: the job runner owns one headless Chromium with its own isolated profile, and the agent's local model drives it step by step with the browser_* tools. It browses the web with the logins you made in `node dist\\src\\jobrunner\\main.js browser-login`. Risky steps (form submits, buying, posting, anything on an ask-domain) ask you again in Telegram with a screenshot; password and payment fields are never filled by the agent. The engine stays off until you tick the Browser form in the settings UI. Desktop setup rewrites cwd to the workspace folder.",
+  "id": "browser-session",
+  "title": "Browse the web",
+  "description": "Opens a headless browser with its own profile and browses the web for you, step by step. Risky steps ask you again; passwords are never typed by the agent.",
+  "engine": "browser",
+  "cwd": "C:\\projects\\Personal\\creative-hub",
+  "prompt": "Browse the web for the user.\n\n{{brief}}",
+  "params": {
+    "type": "object",
+    "properties": {
+      "startUrl": { "type": "string", "description": "an optional http(s) page to open first", "maxLength": 2000, "pattern": "^https?://[^\\s]+$" }
+    }
+  },
+  "permissionMode": "default",
+  "allowedTools": [],
+  "disallowedTools": ["Bash", "PowerShell"],
+  "mcpServers": [],
+  "flow": { "enabled": false },
+  "paidModels": false,
+  "autostart": [],
+  "timeoutMin": 60
+}
