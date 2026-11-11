@@ -99,6 +99,30 @@ agent user's ACEs there.
 - **Edit `config.json`** only from an elevated shell: the agent user has read-only access to it.
 - **Desktop app.** The Windows desktop app (`README.md`, "Desktop app (Windows)") is personal mode: it runs the gateway, the agent and the job runner as the signed-in user, with `--personal` and no separation of settings or jobs. It must not run beside this install's scheduled tasks on one PC (same ports 47007, 47008 and 47009, and possibly the same Telegram token). Stop the tasks first, or do not use the app.
 
+## Browser engine (REQ-0014)
+
+The job runner's `browser` engine drives a real Chromium (Playwright) for the template `browser-session`. It runs as the **main user**; the agent
+user never gets the cookies.
+
+```powershell
+.\jobrunner\install-jobrunner.ps1 -WhatIf   # also lists: create <DataDir>\browser\shots, its ACL, and the config.json line
+.\jobrunner\install-jobrunner.ps1
+.\jobrunner\check-jobrunner.ps1             # read-only; also checks browser\shots (agent Read only) and browser\profile (no agent ACE)
+```
+
+- **Folders** (main user, `<DataDir>` = `%LOCALAPPDATA%\agent-007-jobrunner`): `browser\profile` (cookies and logins), `browser\ms-playwright`
+  (Chromium) and `browser\shots\<jobId>\NNN.png` plus `manifest.json`. Only `shots` has its own ACL (SYSTEM F, Administrators F, main user
+  Modify, agent user Read, inheritable); `profile` and `ms-playwright` stay on the data folder ACL, which has no ACE for the agent user.
+- **Agent config.** `install-jobrunner.ps1` prints the line to add (elevated edit) to `C:\ProgramData\agent-007\config\config.json` under `paths`:
+  `"jobArtifactsDir": "<DataDir>\\browser\\shots"` (backslashes doubled). Without it the web UI's "Browser sessions" view is off.
+- **Acknowledgment.** The engine stays disabled until the owner ticks the browser acknowledgment in the job runner settings UI (Browser form).
+- **Download.** The first browser job posts a permission card in Telegram; only after the owner allows it does the runner download the pinned
+  Chromium (about 150-300 MB). To do it by hand as the main user: `node dist\src\jobrunner\main.js browser-install --config <jobrunner.json>`
+  (needs a terminal). This is the one runtime download the project makes; the install scripts and the build never download a browser.
+- **Login.** As the main user: `node dist\src\jobrunner\main.js browser-login --config <jobrunner.json> [--url https://...]` opens a visible
+  window on the same profile; log in by hand and close it. Jobs run headless.
+- **Wipe the login.** Stop the job runner task, then delete `<DataDir>\browser\profile`. Delete `browser\shots` to drop old screenshots.
+
 ## Extra bots (Phase 4, S20)
 
 A one-bot install needs nothing from this section. Every extra bot has its own Telegram token, its own memory and its own

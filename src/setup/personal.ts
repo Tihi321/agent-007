@@ -156,6 +156,7 @@ export function setupPersonal(o: {
     auditDir: join(data, "audit"),
     controlDir: join(data, "control"),
     runDir: join(data, "run"),
+    jobArtifactsDir: join(root, "jobrunner-data", "browser", "shots"), // REQ-0014: the browser engine's screenshots (read only for the gateway)
   };
   cfg["mainUserProfile"] = home;
   (cfg["telegram"] as Obj)["allowedUserIds"] = [answers.telegram?.allowedUserId ?? PLACEHOLDER_USER_ID];
@@ -273,6 +274,27 @@ export function personalStatus(root: string): { hasProxyKey: boolean; claudeTerm
   };
 }
 
+/** The browser-session job template (REQ-0014), written into `<root>\jobrunner\templates` when absent. */
+function browserSessionTemplate(workspace: string): Obj {
+  return {
+    id: "browser-session",
+    title: "Browser session",
+    description: "Browse the web for the user in a real browser (Chromium) and report what was found. Risky steps ask first.",
+    engine: "browser",
+    cwd: workspace,
+    prompt: "Browse the web for the user.\n\n{{brief}}",
+    params: { type: "object", properties: { startUrl: { type: "string", format: "uri", maxLength: 2048 } } },
+    permissionMode: "default",
+    allowedTools: [],
+    disallowedTools: [],
+    mcpServers: [],
+    flow: { enabled: false },
+    paidModels: false,
+    autostart: [],
+    timeoutMin: 60,
+  };
+}
+
 export interface JobrunnerSetup {
   configPath: string;
   secretsPath: string;
@@ -315,6 +337,31 @@ export function ensureJobrunner(root: string, o: { resourcesDir: string; icacls?
     mkdirSync(join(jrDir, "templates"), { recursive: true });
     writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
     created.push(configPath);
+  }
+
+  // REQ-0014: the browser template, the screenshots folder, and paths.jobArtifactsDir in the agent's config.json (each only when absent)
+  const templatePath = join(jrDir, "templates", "browser-session.json");
+  if (!existsSync(templatePath)) {
+    mkdirSync(dirname(templatePath), { recursive: true });
+    writeFileSync(templatePath, `${JSON.stringify(browserSessionTemplate(join(root, "data", "workspace")), null, 2)}
+`, "utf8");
+    created.push(templatePath);
+  }
+  const shotsDir = join(dataDir, "browser", "shots");
+  mkdirSync(shotsDir, { recursive: true });
+  const agentConfigPath = personalPaths(root).configPath;
+  if (existsSync(agentConfigPath)) {
+    try {
+      const agentCfg = JSON.parse(readFileSync(agentConfigPath, "utf8")) as Obj;
+      const paths = typeof agentCfg["paths"] === "object" && agentCfg["paths"] !== null ? (agentCfg["paths"] as Obj) : undefined;
+      if (paths !== undefined && paths["jobArtifactsDir"] === undefined) {
+        paths["jobArtifactsDir"] = shotsDir;
+        replaceFileAtomic(agentConfigPath, `${JSON.stringify(agentCfg, null, 2)}
+`);
+      }
+    } catch {
+      /* an unreadable config.json is the setup page's business, not the job runner's */
+    }
   }
 
   const keyOf = (file: string): string | undefined => {
