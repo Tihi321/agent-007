@@ -52,6 +52,7 @@ export function renderSidebar(ctx) {
     item("#/account", "Account"),
     user.role === "owner" || user.role === "admin" ? item("#/admin", "Admin") : null,
     user.role === "owner" ? item("#/admin/models", "Models") : null,
+    user.role === "owner" ? item("#/jobs", "Browser sessions") : null,
     h("button", { type: "button", role: "menuitem", onclick: () => ctx.logout() }, "Sign out"),
   );
   const menu = h("div", { class: "usermenu" }, menuBtn, panel);

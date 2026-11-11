@@ -194,6 +194,8 @@ export async function runWeb(cli: WebCli, out: (l: string) => void = (l) => void
     engine,
     audit,
     controlDir: config.paths.controlDir,
+    // REQ-0014: read defensively; the key is added to the config schema by T6 (tidy to config.paths.jobArtifactsDir after merge)
+    ...((config.paths as { jobArtifactsDir?: string }).jobArtifactsDir ? { artifactsDir: (config.paths as { jobArtifactsDir?: string }).jobArtifactsDir as string } : {}),
     // L2: with controlDir set, a lockout writes an owner notice there; the agent sends it (the gateway holds no Telegram token, L8)
     ...(cli.mode === "tailnet"
       ? {
