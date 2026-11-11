@@ -2,7 +2,7 @@
 // tree, and the packaged gateway started by the bundled node.exe exactly like the launcher does (--mode local, secrets ACL check ON,
 // IPC channel), answering GET / and exiting 0 on an IPC shutdown. Exit 0 = pass. Usage: node scripts/desktop/verify-package.mjs [unpackedDir]
 import { execFileSync, spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from "node:fs";
 import net from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -47,6 +47,28 @@ for (const f of [
   check(existsSync(f), `present: ${f.slice(unpacked.length + 1)}`);
 }
 check(!existsSync(join(appDir, "dist", "test")), "dist/test is not shipped");
+if (failures.length) {
+  done();
+}
+
+// 1b. playwright-core ships at the exact pinned version; no browser is bundled (Chromium is downloaded on first use)
+{
+  const pinned = JSON.parse(readFileSync(join(repo, "package.json"), "utf8")).dependencies?.["playwright-core"];
+  const pwPkg = join(appDir, "node_modules", "playwright-core", "package.json");
+  check(existsSync(pwPkg), "present: resources/app/node_modules/playwright-core/package.json");
+  const shipped = existsSync(pwPkg) ? JSON.parse(readFileSync(pwPkg, "utf8")).version : undefined;
+  check(typeof pinned === "string" && /^\d+\.\d+\.\d+$/.test(pinned) && shipped === pinned, `playwright-core ${shipped} equals the exact pinned version ${pinned}`);
+  const stray = [];
+  const scan = (dir) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, e.name);
+      if (e.name.toLowerCase() === "ms-playwright" || e.name.toLowerCase() === "chrome.exe") stray.push(p.slice(unpacked.length + 1));
+      else if (e.isDirectory()) scan(p);
+    }
+  };
+  scan(res);
+  check(stray.length === 0, `no ms-playwright folder or chrome.exe under resources/${stray.length ? ": " + stray.slice(0, 3).join(", ") : ""}`);
+}
 if (failures.length) {
   done();
 }

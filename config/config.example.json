@@ -107,7 +107,8 @@
       "tools": [
         "tool_search", "dispatch_job", "job_status", "cancel_job", "list_templates", "ask_user", "hub_status", "system_facts", "list_dir", "read_file",
         "search_files", "write_file", "remember", "shell", "hub_start", "get_settings", "list_personas", "propose_setting", "propose_persona", "switch_persona",
-        "tts_line", "chiptune_loop", "comfy_image", "mcp__*"
+        "tts_line", "chiptune_loop", "comfy_image",
+        "browser_goto", "browser_back", "browser_read", "browser_click", "browser_type", "browser_fill", "browser_press", "browser_screenshot", "browser_done", "mcp__*"
       ],
       "readRoots": [{ "alias": "documents", "path": "C:\\Users\\CHANGE-ME\\Documents" }],
       "cloudSafeRoots": [],

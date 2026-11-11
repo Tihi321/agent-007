@@ -29,6 +29,9 @@ import {
   validateBotsDoc,
 } from "../bots/schema.js";
 
+/** A browser domain entry: `example.com` or `*.example.com` (lowercase labels, no scheme, port or path). */
+const DOMAIN_PATTERN = String.raw`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`;
+
 // ---- tiny constructors ------------------------------------------------------------------------------------------
 
 const str = (ui: Schema["x-ui"] = {}, more: Partial<Schema> = {}): Schema => ({ type: "string", minLength: 1, maxLength: 500, "x-ui": { widget: "text", ...ui }, ...more });
@@ -263,6 +266,18 @@ export const SECURITY_SCHEMA: Schema = obj(
       },
       [],
       { label: "Terms acknowledgments", group: "bots" },
+    ),
+    browser: obj(
+      {
+        acknowledged: bool(false, { label: "I understand the agent can act on websites with the sessions in its browser profile", help: "Browser jobs stay off until this is ticked. Set only here, in the Browser form." }),
+        allowedDomains: list(str({ label: "Domain" }, { pattern: DOMAIN_PATTERN, maxLength: 253 }), { label: "Allowed domains", widget: "tags", help: "Empty = any public host. Entries: example.com or *.example.com." }, { maxItems: 200, default: [] }),
+        blockedDomains: list(str({ label: "Domain" }, { pattern: DOMAIN_PATTERN, maxLength: 253 }), { label: "Blocked domains", widget: "tags", help: "Always refused." }, { maxItems: 200, default: [] }),
+        askDomains: list(str({ label: "Domain" }, { pattern: DOMAIN_PATTERN, maxLength: 253 }), { label: "Always ask on these domains", widget: "tags", help: "Every write action on these hosts asks you first." }, { maxItems: 200, default: [] }),
+        extraRiskyWords: list(str({ label: "Word" }, { pattern: "^[A-Za-z][A-Za-z ]{0,38}[A-Za-z]$", minLength: 2, maxLength: 40 }), { label: "Extra risky words", widget: "tags", help: "A click whose label or link matches one of these asks first. Letters and spaces only." }, { maxItems: 50, default: [] }),
+        maxScreenshotsPerJob: int(1, 200, 50, { label: "Screenshots per job (at most)" }),
+      },
+      [],
+      { label: "Browser", group: "jobs" },
     ),
     botBus: obj(
       {

@@ -98,8 +98,25 @@ export const isBlockedAddress = (ip: string): boolean => (isIP(ip) === 6 ? isBlo
 export type Resolver = (host: string) => Promise<string[]>;
 export type UrlVerdict = { ok: true; url: URL; addresses: string[] } | { ok: false; reason: string };
 
-/** `allow`: host names (exact, or `*.suffix`) the owner listed; an empty list allows nothing (UI-41). */
-export async function checkUrl(input: string, allow: readonly string[], resolver: Resolver): Promise<UrlVerdict> {
+export type UrlShape = { ok: true; url: URL; host: string } | { ok: false; reason: string };
+
+/** Host-name rules shared by URL and CONNECT vetting; `host` is lowercase without IPv6 brackets. */
+function vetHostName(host: string): { ok: true } | { ok: false; reason: string } {
+  if (host === "" || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".lan") || host.endsWith(".home.arpa") || host.endsWith(".ts.net")) return { ok: false, reason: "a local or internal name" };
+  return { ok: true };
+}
+
+function vetLiteralOrNumeric(host: string): { ok: true } | { ok: false; reason: string } {
+  if (isIP(host)) {
+    if (isBlockedAddress(host)) return { ok: false, reason: "a private, loopback or tailnet address" };
+  } else if (/^(0x[0-9a-f]+|\d+)(\.(0x[0-9a-f]+|\d+))*$/i.test(host) || /^0[0-7]+\./.test(host)) {
+    return { ok: false, reason: "a numeric host that is not a plain address" };
+  }
+  return { ok: true };
+}
+
+/** Everything `checkUrl` checks before the allowlist and DNS: scheme, credentials, local names, blocked ports, numeric tricks, literal blocked IPs. */
+export function vetUrlShape(input: string): UrlShape {
   let u: URL;
   try {
     u = new URL(input);
@@ -109,17 +126,38 @@ export async function checkUrl(input: string, allow: readonly string[], resolver
   if (u.protocol !== "https:" && u.protocol !== "http:") return { ok: false, reason: "only http and https" };
   if (u.username !== "" || u.password !== "") return { ok: false, reason: "no credentials in the URL" };
   const host = u.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-  if (host === "" || host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".internal") || host.endsWith(".lan") || host.endsWith(".home.arpa") || host.endsWith(".ts.net")) return { ok: false, reason: "a local or internal name" };
+  const name = vetHostName(host);
+  if (!name.ok) return name;
   if (u.port !== "" && BLOCKED_PORTS.includes(Number(u.port))) return { ok: false, reason: "a blocked port" };
-  if (isIP(host)) {
-    if (isBlockedAddress(host)) return { ok: false, reason: "a private, loopback or tailnet address" };
-  } else if (/^(0x[0-9a-f]+|\d+)(\.(0x[0-9a-f]+|\d+))*$/i.test(host) || /^0[0-7]+\./.test(host)) {
-    return { ok: false, reason: "a numeric host that is not a plain address" };
-  }
+  const lit = vetLiteralOrNumeric(host);
+  if (!lit.ok) return lit;
+  return { ok: true, url: u, host };
+}
+
+/** `allow`: host names (exact, or `*.suffix`) the owner listed; an empty list allows nothing (UI-41). */
+export async function checkUrl(input: string, allow: readonly string[], resolver: Resolver): Promise<UrlVerdict> {
+  const shape = vetUrlShape(input);
+  if (!shape.ok) return shape;
+  const { url: u, host } = shape;
   const listed = allow.some((a) => (a.startsWith("*.") ? host.endsWith(a.slice(1).toLowerCase()) : host === a.toLowerCase()));
   if (!listed) return { ok: false, reason: "the host is not on the allowlist" };
   const addresses = isIP(host) ? [host] : await resolver(host).catch(() => [] as string[]);
   if (addresses.length === 0) return { ok: false, reason: "the name did not resolve" };
   if (addresses.some(isBlockedAddress)) return { ok: false, reason: "the name resolves to a private, loopback or tailnet address" };
   return { ok: true, url: u, addresses };
+}
+
+/** A host:port for a public-web connection (no allowlist): refuses blocked ports, local names, blocked literals and a DNS answer with ANY blocked address. */
+export async function vetPublicHost(host: string, port: number, resolver: Resolver): Promise<{ ok: true; addresses: string[] } | { ok: false; reason: string }> {
+  const h = host.toLowerCase().replace(/^\[|\]$/g, "");
+  const name = vetHostName(h);
+  if (!name.ok) return name;
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return { ok: false, reason: "not a valid port" };
+  if (BLOCKED_PORTS.includes(port)) return { ok: false, reason: "a blocked port" };
+  const lit = vetLiteralOrNumeric(h);
+  if (!lit.ok) return lit;
+  const addresses = isIP(h) ? [h] : await resolver(h).catch(() => [] as string[]);
+  if (addresses.length === 0) return { ok: false, reason: "the name did not resolve" };
+  if (addresses.some(isBlockedAddress)) return { ok: false, reason: "the name resolves to a private, loopback or tailnet address" };
+  return { ok: true, addresses };
 }

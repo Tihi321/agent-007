@@ -22,7 +22,7 @@ test("defaults: creative-hub is the only allowed cwd, dsh is off, one job per en
   assert.equal(c.engines.dsh.enabled, false);
   assert.equal(c.engines.dsh.verified, false);
   assert.equal(c.engines.claude.enabled, true);
-  assert.deepEqual(c.limits.maxConcurrent, { claude: 1, dsh: 1, hub: 1 });
+  assert.deepEqual(c.limits.maxConcurrent, { claude: 1, dsh: 1, hub: 1, browser: 1 });
   assert.equal(c.limits.dailyCreditCap, 0, "no default Flow budget (D11)");
   assert.equal(c.paths.dataDir, "C:\\Users\\me\\AppData\\Local\\agent-007-jobrunner");
   assert.equal(c.paths.templatesDir, "C:\\ProgramData\\agent-007\\jobrunner\\templates");
@@ -111,4 +111,23 @@ test("output cap: long text is cut, the total is counted, events past the cap ar
   const big = new OutputBudget(10_000, 100).admit({ kind: "tool_call", tool: "Read", input: { path: "p".repeat(500) } });
   assert.ok(big.event && big.event.kind === "tool_call");
   assert.deepEqual(Object.keys((big.event as { input: object }).input).sort(), ["chars", "preview", "truncated"]);
+});
+
+test("browser engine config: defaults sit under the data dir; a real browser's profile and a profile inside the screenshots or a job folder are refused", () => {
+  const env = { localAppData: "C:\\Users\\me\\AppData\\Local" };
+  const c = parseJobRunnerConfig({}, env);
+  assert.equal(c.engines.browser.enabled, true);
+  assert.equal(c.engines.browser.profileDir, "C:\\Users\\me\\AppData\\Local\\agent-007-jobrunner\\browser\\profile");
+  assert.equal(c.engines.browser.artifactsDir, "C:\\Users\\me\\AppData\\Local\\agent-007-jobrunner\\browser\\shots");
+  assert.equal(c.engines.browser.idleMin, 10);
+  const refused = (browser: Record<string, unknown>): void => assert.throws(() => parseJobRunnerConfig({ engines: { browser } }, env), /profileDir/, JSON.stringify(browser));
+  refused({ profileDir: "C:\\Users\\me\\AppData\\Local\\Google\\Chrome\\User Data\\Default" });
+  refused({ profileDir: "C:\\Users\\me\\AppData\\Local\\Microsoft\\Edge\\User Data" });
+  refused({ profileDir: "D:\\stuff\\User Data" });
+  refused({ profileDir: "D:\\shots\\profile", artifactsDir: "D:\\shots" });
+  refused({ profileDir: "D:\\browser", artifactsDir: "D:\\browser\\shots" });
+  refused({ profileDir: "C:\\projects\\Personal\\creative-hub\\profile" });
+  assert.throws(() => parseJobRunnerConfig({ engines: { browser: { idleMin: 0 } } }, env), /idleMin/);
+  assert.throws(() => parseJobRunnerConfig({ limits: { maxConcurrent: { browser: 2 } } }, env), /maxConcurrent\.browser/);
+  assert.ok(parseJobRunnerConfig({ engines: { browser: { profileDir: "D:\\a7\\profile", artifactsDir: "D:\\a7\\shots" } } }, env));
 });

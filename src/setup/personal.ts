@@ -156,6 +156,7 @@ export function setupPersonal(o: {
     auditDir: join(data, "audit"),
     controlDir: join(data, "control"),
     runDir: join(data, "run"),
+    jobArtifactsDir: join(root, "jobrunner-data", "browser", "shots"), // REQ-0014: the browser engine's screenshots (read only for the gateway)
   };
   cfg["mainUserProfile"] = home;
   (cfg["telegram"] as Obj)["allowedUserIds"] = [answers.telegram?.allowedUserId ?? PLACEHOLDER_USER_ID];
@@ -273,6 +274,14 @@ export function personalStatus(root: string): { hasProxyKey: boolean; claudeTerm
   };
 }
 
+/** The browser-session job template (REQ-0014): the shipped `config/templates/browser-session.json` with `cwd` set to the workspace (one source, so they cannot drift). */
+function browserSessionTemplate(resourcesDir: string, workspace: string): Obj {
+  const tpl = JSON.parse(readFileSync(join(resourcesDir, "config", "templates", "browser-session.json"), "utf8")) as Obj;
+  for (const k of Object.keys(tpl)) if (k.startsWith("_")) delete tpl[k];
+  tpl["cwd"] = workspace;
+  return tpl;
+}
+
 export interface JobrunnerSetup {
   configPath: string;
   secretsPath: string;
@@ -315,6 +324,31 @@ export function ensureJobrunner(root: string, o: { resourcesDir: string; icacls?
     mkdirSync(join(jrDir, "templates"), { recursive: true });
     writeFileSync(configPath, `${JSON.stringify(cfg, null, 2)}\n`, "utf8");
     created.push(configPath);
+  }
+
+  // REQ-0014: the browser template, the screenshots folder, and paths.jobArtifactsDir in the agent's config.json (each only when absent)
+  const templatePath = join(jrDir, "templates", "browser-session.json");
+  if (!existsSync(templatePath)) {
+    mkdirSync(dirname(templatePath), { recursive: true });
+    writeFileSync(templatePath, `${JSON.stringify(browserSessionTemplate(o.resourcesDir, join(root, "data", "workspace")), null, 2)}
+`, "utf8");
+    created.push(templatePath);
+  }
+  const shotsDir = join(dataDir, "browser", "shots");
+  mkdirSync(shotsDir, { recursive: true });
+  const agentConfigPath = personalPaths(root).configPath;
+  if (existsSync(agentConfigPath)) {
+    try {
+      const agentCfg = JSON.parse(readFileSync(agentConfigPath, "utf8")) as Obj;
+      const paths = typeof agentCfg["paths"] === "object" && agentCfg["paths"] !== null ? (agentCfg["paths"] as Obj) : undefined;
+      if (paths !== undefined && paths["jobArtifactsDir"] === undefined) {
+        paths["jobArtifactsDir"] = shotsDir;
+        replaceFileAtomic(agentConfigPath, `${JSON.stringify(agentCfg, null, 2)}
+`);
+      }
+    } catch {
+      /* an unreadable config.json is the setup page's business, not the job runner's */
+    }
   }
 
   const keyOf = (file: string): string | undefined => {

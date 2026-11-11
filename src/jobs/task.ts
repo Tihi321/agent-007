@@ -25,6 +25,7 @@ import { PermissionRelay, buildJobCard, rejectionText, waitForApproval } from ".
 import type {
   JobApprovalTransport,
   JobDone,
+  JobEngine,
   JobEvent,
   JobRequest,
   JobRunnerClient,
@@ -123,6 +124,8 @@ export interface TrackerSummary {
  */
 export class JobTracker {
   runnerOnline = true;
+  /** REQ-0014: called once when a browser job first runs (the Job task uses it when JobTaskDeps.onRunning is not given). */
+  onRunning: JobTaskDeps["onRunning"] | undefined;
   readonly #jobs = new Map<string, TrackedJob>();
   readonly #cancel = new Map<string, AbortController>();
   readonly #listeners = new Set<() => void>();
@@ -319,6 +322,8 @@ export interface SettledJob {
   jobId: string;
   conversationId: string;
   templateId: string;
+  /** The template engine: a browser job that ended "succeeded" ended through browser_done. */
+  engine: JobEngine;
   result: JobTaskResult;
 }
 
@@ -337,6 +342,8 @@ export interface JobTaskDeps {
   retryDelayMs?: number | undefined;
   /** How often an `interrupted` job is resumed before it is failed. Default 2. */
   maxResumes?: number | undefined;
+  /** Called once when the run phase first sees state "running" for an engine "browser" job (REQ-0014). Errors are logged. */
+  onRunning?: ((job: { jobId: string; conversationId: string; templateId: string; engine: JobEngine }) => void | Promise<void>) | undefined;
   /** Called once a job reached a result, before the task becomes terminal (so a crash repeats it, never loses it). */
   onSettled?: ((job: SettledJob) => void | Promise<void>) | undefined;
 }
@@ -506,6 +513,18 @@ export function createJobTask(deps: JobTaskDeps) {
     let pendingCharge: number | undefined;
     let resultText: string | undefined;
     let startedAt = input.createdAt;
+    let artifactIndex = 0;
+    let runningNotified = false;
+    const noteRunning = async (): Promise<void> => {
+      if (runningNotified || engine !== "browser") return;
+      runningNotified = true;
+      const cb = deps.onRunning ?? tracker.onRunning;
+      try {
+        await cb?.({ jobId, conversationId: input.conversationId, templateId: input.template.id, engine });
+      } catch (e) {
+        log?.warn("jobs.on_running_failed", { jobId, error: errText(e) });
+      }
+    };
     track(input, { phase: "run", state: "running", eventCount: agg.eventCount });
 
     const offs = [
@@ -564,6 +583,9 @@ export function createJobTask(deps: JobTaskDeps) {
         pendingCharge = Math.max(pendingCharge ?? 0, e.chargedTotal);
       } else if (e.kind === "result") {
         resultText = e.text;
+      } else if (e.kind === "artifact") {
+        const index = artifactIndex++;
+        deps.transport.postArtifact({ jobId, conversationId: input.conversationId, artifact: e.artifact, index }).catch((err: unknown) => log?.warn("jobs.post_artifact_failed", { jobId, error: errText(err) }));
       }
       track(input, { phase: "run", state: agg.state, eventCount: agg.eventCount, lastLine: agg.text().split("\n").at(-1) ?? "" });
       poster.offer(agg.update(input.conversationId));
@@ -606,6 +628,7 @@ export function createJobTask(deps: JobTaskDeps) {
         }
 
         for (const e of inbox.splice(0, inbox.length).sort((a, b) => a.seq - b.seq)) handleEvent(e);
+        if (agg.state === "running") await noteRunning();
         if (pendingCharge !== undefined || agg.lastSeq - committedSeq >= 20) await commitProgress();
 
         if (needReconcile) {
@@ -659,6 +682,7 @@ export function createJobTask(deps: JobTaskDeps) {
             continue;
           }
           track(input, { state: job.state });
+          if (job.state === "running") await noteRunning();
         }
 
         if (inbox.length === 0 && !needReconcile) {
@@ -721,7 +745,7 @@ export function createJobTask(deps: JobTaskDeps) {
     const input = task.input;
     const result = task.state.checkpoint.result;
     try {
-      await deps.onSettled?.({ jobId: input.jobId, conversationId: input.conversationId, templateId: input.template.id, result });
+      await deps.onSettled?.({ jobId: input.jobId, conversationId: input.conversationId, templateId: input.template.id, engine: input.template.engine, result });
     } catch (e) {
       log?.warn("jobs.on_settled_failed", { jobId: input.jobId, error: errText(e) });
     }

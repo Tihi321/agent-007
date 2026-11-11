@@ -7,6 +7,7 @@ import { createApi } from "./api.js";
 import { renderBotEditor, renderBots } from "./bots.js";
 import { renderChat } from "./chat.js";
 import { clear, h, icon } from "./dom.js";
+import { renderJobs } from "./jobs.js";
 import { renderModels } from "./models.js";
 import { renderSidebar } from "./sidebar.js";
 
@@ -188,6 +189,9 @@ export function start(env) {
       case "admin":
         if (parts[1] === "models" && state.user.role === "owner") return ctx.mount(await renderModels(ctx));
         return ctx.mount(await renderAdmin(ctx));
+      case "jobs":
+        if (state.user.role === "owner") return ctx.mount(await renderJobs(ctx));
+        return ctx.mount(await renderBots(ctx));
       case "bot":
         return ctx.mount(await renderBotEditor(ctx, parts[1] === "new" ? "" : parts[1]));
       case "chat":

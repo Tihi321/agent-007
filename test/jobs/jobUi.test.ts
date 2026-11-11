@@ -1,5 +1,9 @@
 /** S14.3: the Telegram job UI, against the fake Telegram API (a real grammY Bot with its HTTP layer replaced). */
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { test } from "node:test";
 import { buildJobCard, PAID_MODELS_NOTICE } from "../../src/jobs/approval.js";
 import type { HubStartCard, JobApprovalCard, JobDone, PermissionRequest } from "../../src/jobs/contracts.js";
@@ -385,4 +389,24 @@ test("cancelChat settles every open card of the chat", async () => {
   assert.equal((await p).approved, false);
   assert.equal(ui.cancelChat(USER_ID), 0);
   void template;
+});
+
+test("postArtifact sends the PNG bytes as a photo with a caption that has no query string", async () => {
+  const dir = mkdtempSync(path.join(tmpdir(), "a7-ui-"));
+  try {
+    const bytes = Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), Buffer.from("shot")]);
+    mkdirSync(path.join(dir, "job-0123456789ab"));
+    writeFileSync(path.join(dir, "job-0123456789ab", "001.png"), bytes);
+    const tg = createFakeTelegram();
+    const ui = new TelegramJobUi({ api: tg.bot.api, allowedUserIds: [USER_ID], chats: { chatForConversation: () => USER_ID }, logger: memoryLogger(), artifactsRoot: dir });
+    const artifact = { path: "job-0123456789ab/001.png", mime: "image/png" as const, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), caption: "https://example.com/page?token=SECRET#frag" };
+    await ui.postArtifact({ jobId: "job-0123456789ab", conversationId: "1", artifact, index: 0 });
+    const photo = tg.of("sendPhoto");
+    assert.equal(photo.length, 1);
+    const file = photo[0]!.payload["photo"] as { toRaw(): Promise<Uint8Array> };
+    assert.ok(Buffer.from(await file.toRaw()).equals(bytes));
+    assert.equal(photo[0]!.payload["caption"], "https://example.com/page");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });

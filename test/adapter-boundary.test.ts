@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { findAcpViolations, findBoundaryViolations } from "../scripts/check-adapter-boundary.js";
+import { findAcpViolations, findBoundaryViolations, findPlaywrightViolations } from "../scripts/check-adapter-boundary.js";
 
 // dist/test/adapter-boundary.test.js -> project root
 const ROOT = resolve(fileURLToPath(import.meta.url), "..", "..", "..");
@@ -70,6 +70,21 @@ test("the adapter checker treats pi-mcp like any other Pi package", () => {
     mkdirSync(join(dir, "src", "mcp"), { recursive: true });
     writeFileSync(join(dir, "src", "mcp", "bad.ts"), `import { McpClient } from "@earendil${"-works"}/pi-mcp";\n`);
     assert.deepEqual(findBoundaryViolations(dir).map((x) => x.file), ["src/mcp/bad.ts"]);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the real tree and the checker: playwright-core only under the browser driver folder", () => {
+  assert.deepEqual(findPlaywrightViolations(ROOT), []);
+  const dir = mkdtempSync(join(tmpdir(), "a7-pw-boundary-"));
+  try {
+    for (const d of ["src/jobrunner/drivers/browser", "src/jobrunner", "src/web"]) mkdirSync(join(dir, d), { recursive: true });
+    const line = `const pw = await import("playwright${"-core"}");\n`;
+    writeFileSync(join(dir, "src/jobrunner/drivers/browser/driver.ts"), line);
+    writeFileSync(join(dir, "src/jobrunner/manager.ts"), line);
+    writeFileSync(join(dir, "src/web/bad.ts"), `import { chromium } from "playwright${"-core"}/lib/x";\n`);
+    assert.deepEqual(findPlaywrightViolations(dir).map((x) => x.file).sort(), ["src/jobrunner/manager.ts", "src/web/bad.ts"]);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

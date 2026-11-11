@@ -44,7 +44,7 @@ test("the five Phase 4 descriptors exist, are security forms over exactly their 
   assert.deepEqual(forms.map((f) => [f.id, f.section.join()]), [["bots", "bots"], ["terms", "termsAccepted"], ["botbus", "botBus"], ["botroom", "botRoom"], ["gate", "gate"]]);
   const shipped = shippedForms().list();
   for (const f of forms) assert.ok(shipped.some((x) => x.id === f.id), f.id);
-  assert.deepEqual(shipped.filter((f) => f.ack).map((f) => f.id), ["terms"], "only the terms form carries an acknowledgment");
+  assert.deepEqual(shipped.filter((f) => f.ack).map((f) => f.id), ["browser", "terms"], "only the terms and browser forms carry an acknowledgment");
   assert.equal(shipped.find((f) => f.id === "terms")?.ack?.text, TERMS_ACK_TEXT);
   assert.match(TERMS_ACK_TEXT, /terms/);
   // the models form edits the presets, with the Phase 4 fields (kind, proxy URL, provider, privacy, autoFallback)
@@ -204,6 +204,11 @@ test("a save that names termsAccepted without a form id must not skip the acknow
     const r = await s.post("/api/security/save", { sections: { termsAccepted: { claude: true, antigravity: true } }, baseRevision: cur.revision });
     assert.notEqual(r.status, 200, "termsAccepted was written with no acknowledgment");
     assert.equal(readSecurity(rig).doc["termsAccepted"], undefined);
+    const b = await s.post("/api/security/save", { formId: "browser", sections: { browser: { acknowledged: true } }, baseRevision: cur.revision });
+    assert.equal(b.status, 422, "browser.acknowledged was written with no acknowledgment");
+    const b2 = await s.post("/api/security/save", { sections: { browser: { acknowledged: true } }, baseRevision: cur.revision });
+    assert.notEqual(b2.status, 200, "browser was written with no form id");
+    assert.equal(readSecurity(rig).doc["browser"], undefined);
   } finally {
     await rig.cleanup();
   }
@@ -231,9 +236,10 @@ test("no allowlist row reaches termsAccepted, or any security.json path: not for
   assert.ok(rows.length > DEFAULT_ROWS.length, "the per-bot rows are in the table");
   const paths = securityPaths(SECURITY_SCHEMA);
   assert.ok(paths.some((p) => p.join(".") === "termsAccepted.claude"), "the walk reaches termsAccepted.claude");
+  assert.ok(paths.some((p) => p.join(".") === "browser.acknowledged"), "the walk reaches browser.acknowledged");
   assert.ok(paths.length > 100, `walked ${paths.length} security paths`);
   for (const p of paths) assert.equal(findRow(rows, p), undefined, `a row matches the security path ${p.join(".")}`);
-  for (const extra of [["termsAccepted"], ["termsAccepted", "claude"], ["termsAccepted", "antigravity"], ["bots", "main", "termsAccepted"], ["bots", "research", "termsAccepted", "claude"], ["presets"], ["bots", "main", "route"], ["bots", "main", "route", "fallback"], ["bots", "main", "edges"]]) {
+  for (const extra of [["termsAccepted"], ["termsAccepted", "claude"], ["termsAccepted", "antigravity"], ["browser"], ["browser", "acknowledged"], ["browser", "askDomains"], ["bots", "main", "termsAccepted"], ["bots", "research", "termsAccepted", "claude"], ["presets"], ["bots", "main", "route"], ["bots", "main", "route", "fallback"], ["bots", "main", "edges"]]) {
     assert.equal(findRow(rows, extra), undefined, extra.join("."));
   }
   // the only Phase 4 row shape is bots.<id>.activePreset, and nothing mentions terms

@@ -18,6 +18,7 @@ import { adminRoutes } from "./routes/admin.js";
 import { authRoutes } from "./routes/auth.js";
 import { chatRoutes } from "./routes/chat.js";
 import { paidAdminRoutes } from "./routes/paid.js";
+import { ownerRoutes } from "./routes/owner.js";
 import { modelsRoutes } from "./routes/models.js";
 import type { ModelsRouteDeps } from "./routes/models.js";
 import { privacyRoutes } from "./routes/privacy.js";
@@ -60,6 +61,10 @@ export interface WebAppOptions {
   keepRunMs?: number;
   /** The agent control folder: when its kill-switch flag exists, every web session ends and the API answers 503 (S36). */
   controlDir?: string;
+  /** REQ-0014: `paths.jobArtifactsDir` (browser job screenshots). Absent = the owner artifact routes are not mounted. */
+  artifactsDir?: string;
+  /** Test seam of the owner artifact routes. */
+  ownerStore?: import("./routes/owner.js").OwnerStore;
 }
 
 export interface WebApp {
@@ -127,7 +132,7 @@ export async function startWebApp(o: WebAppOptions): Promise<WebApp> {
     identify,
     admit: admin.admit,
     presentInvite: admin.presentInvite,
-    routes: { ...authRoutes(stack, { onLockdown: () => void chat.stopAll() }), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin), ...paidAdminRoutes(stack, chat, o.presets), ...(o.catalog ? modelsRoutes({ stack, chat, catalog: o.catalog, audit: stack.audit, ...(o.models ?? {}) }) : {}) },
+    routes: { ...authRoutes(stack, { onLockdown: () => void chat.stopAll() }), ...adminRoutes(stack, admin), ...chatRoutes(chat, o.presets, userCaps), ...privacyRoutes(stack, chat, admin), ...paidAdminRoutes(stack, chat, o.presets), ...(o.artifactsDir ? ownerRoutes(stack, { root: o.artifactsDir, ...(o.ownerStore ? { store: o.ownerStore } : {}) }) : {}), ...(o.catalog ? modelsRoutes({ stack, chat, catalog: o.catalog, audit: stack.audit, ...(o.models ?? {}) }) : {}) },
     ...(assets ? { assets } : {}),
     now,
     ...(watch ? { lockedDown: watch.lockedDown } : {}),

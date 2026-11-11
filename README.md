@@ -81,6 +81,20 @@ principle change the settings the job runner trusts, because its shell tool and 
 path policy only). Turning the switch on shows this warning every time and Cancel leaves it off. Turn it on only if you accept that; otherwise use the
 hardened install.
 
+**Browser sessions (job runner, off by default).** With the job runner on, the `browser-session` template lets the agent's local model browse the
+web in a real Chromium that the job runner drives (open pages, read text, click, type, take screenshots). Screenshots are saved as files and shown
+in the web UI under "Browser sessions" (owner only). To use it:
+- Tick the browser acknowledgment in the job runner settings UI ("Browser" form). Until then the engine stays off.
+- The first browser job asks you in Telegram before it downloads Chromium (about 150-300 MB, from the Playwright CDN, into
+  `<data folder>\jobrunner-data\browser\ms-playwright`). This is the one runtime download the project makes; the installer and the build never download a
+  browser. You can fetch it yourself first with `node dist\src\jobrunner\main.js browser-install --config <jobrunner.json>` in a terminal.
+- "Browser login..." in the tray menu (enabled while the job runner is on) opens a visible browser window on the same private profile: log in to the
+  sites you want by hand and close the window. Jobs run headless and never type into password fields. If the command fails (for example Chromium is not
+  downloaded yet) the tray shows the reason in a dialog.
+- The login profile is `<data folder>\jobrunner-data\browser\profile`; screenshots are in `<data folder>\jobrunner-data\browser\shots\<jobId>\`. To wipe
+  the login, stop the job runner and delete the `profile` folder. Setup writes `paths.jobArtifactsDir` (the shots folder) into `config.json` so the web UI
+  can show the pictures.
+
 **Installer versus portable.**
 - Update: run a newer Setup over the old one (the installer), or replace the portable exe by hand. Data is never inside the install folder, so it is kept.
 - The portable exe is one file that unpacks about 200 MB to a temp folder on every start, so the start is slower. Nothing is written next to it. It has no
@@ -113,7 +127,8 @@ register scheduled tasks. Every script supports `-WhatIf`. Follow `deploy/README
    in `telegram.allowedUserIds`.
 3. Run `deploy\setup-agent-user.ps1`, `grant-folder-acls.ps1`, `new-secrets.ps1`, `deploy-app.ps1`, `register-task.ps1`.
 4. For jobs, run `deploy\jobrunner\install-jobrunner.ps1` as the main user, then edit `jobrunner.json` (copied from
-   `config/jobrunner.example.json`).
+   `config/jobrunner.example.json`). It also creates `<job runner data>\browser\shots` and prints the `paths.jobArtifactsDir` line to add to the
+   agent's `config.json`; see "Browser engine" in `deploy/README-ops.md`.
 5. Run `deploy\check-acl.ps1` (read-only) and fix anything it reports.
 
 Kill switches, uninstall and the optional extra bots are in `deploy/README-ops.md`.

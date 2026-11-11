@@ -15,7 +15,9 @@
  * - All text is plain (no parse mode), so nothing in a brief, an input or a job's output is interpreted.
  */
 import { randomBytes } from "node:crypto";
+import { InputFile } from "grammy";
 import type { Api, Context } from "grammy";
+import { readArtifact } from "../artifacts/store.js";
 import type { ChatLookup, Logger, PeerProvenance } from "../contracts.js";
 import { INLINE_BRIEF_MAX_CHARS, cardLines } from "../jobs/approval.js";
 import type {
@@ -23,6 +25,8 @@ import type {
   JobApprovalCard,
   JobApprovalDecision,
   JobApprovalTransport,
+  ArtifactRef,
+  JobArtifactPost,
   JobDone,
   JobProgressUpdate,
   PermissionDecision,
@@ -32,7 +36,7 @@ import { chunkText, TELEGRAM_LIMIT } from "./chunk.js";
 import { isNotModified } from "./delivery.js";
 import { formatClock, provenanceLines } from "./approvalUi.js";
 
-export type JobUiApi = Pick<Api, "sendMessage" | "editMessageText" | "answerCallbackQuery" | "editMessageReplyMarkup">;
+export type JobUiApi = Pick<Api, "sendMessage" | "sendPhoto" | "editMessageText" | "answerCallbackQuery" | "editMessageReplyMarkup">;
 
 export interface JobUiOptions {
   api: JobUiApi;
@@ -46,6 +50,8 @@ export interface JobUiOptions {
   minEditIntervalMs?: number | undefined;
   /** Phase 4 (S26.2): peer replies the conversation's current turn received; the approval card quotes them. */
   provenanceFor?: ((conversationId: string) => readonly PeerProvenance[] | undefined) | undefined;
+  /** REQ-0014: paths.jobArtifactsDir. Absent = no screenshot is sent, text still is. */
+  artifactsRoot?: string | undefined;
 }
 
 /** The Scriptorium start has its own warning (S10.4). */
@@ -53,6 +59,9 @@ export const SCRIPTORIUM_WARNING = "Scriptorium resumes its whole book factory a
 /** Permission inputs longer than this are cut on the card; "Show full input" sends the rest. */
 export const MAX_INPUT_CHARS = 1200;
 const BRIEF_CHUNK = 3800;
+const MAX_PHOTOS_PER_JOB = 30;
+const CAPTION_MAX = 1024;
+const SHOT_RE = /^job-[0-9a-f]{12}\/\d{3}\.png$/;
 const CALLBACK_RE = /^jb:([0-9a-f]{8}):(y|n|a|d|i)$/;
 
 type Kind = "job" | "hub" | "perm";
@@ -87,6 +96,11 @@ interface ProgressMsg {
 
 function clip(s: string, max: number): string {
   return s.length <= max ? s : `${s.slice(0, max - 1)}…`;
+}
+
+/** Plain caption: URLs lose their query string and fragment, at most 1024 characters. */
+function cleanCaption(s: string): string {
+  return clip(s.replace(/(https?:\/\/[^\s?#]*)[?#]\S*/gi, "$1"), CAPTION_MAX);
 }
 
 function minutes(ms: number): string {
@@ -126,7 +140,10 @@ export function finalText(done: JobDone): string {
     lines.push(`Flow credits: approved ${done.flow.approved}, charged ${done.flow.charged}${done.flow.reported !== undefined ? `, reported spent ${done.flow.reported}` : ", reported spend not available"}.`);
   }
   lines.push("", done.summary.trim() === "" ? "(no summary)" : done.summary);
-  if (done.artifacts.length > 0) lines.push("", "Artifacts:", ...done.artifacts.map((a) => `- ${a}`));
+  if (done.artifacts.length > 0 && done.artifacts.every((a) => SHOT_RE.test(a))) {
+    // a browser job: the images are in Telegram and in the web UI
+    lines.push("", `${done.artifacts.length} screenshot${done.artifacts.length === 1 ? "" : "s"}: agent-007 web UI > Browser sessions`);
+  } else if (done.artifacts.length > 0) lines.push("", "Artifacts:", ...done.artifacts.map((a) => `- ${a}`));
   if (done.error) lines.push("", `Error: ${done.error}`);
   return lines.join("\n");
 }
@@ -137,6 +154,7 @@ export class TelegramJobUi implements JobApprovalTransport {
   readonly #minEdit: number;
   readonly #pending = new Map<string, Pending>();
   readonly #progress = new Map<string, ProgressMsg>();
+  readonly #photos = new Map<string, number>();
 
   constructor(opts: JobUiOptions) {
     this.#o = opts;
@@ -236,15 +254,17 @@ export class TelegramJobUi implements JobApprovalTransport {
       full = "(input could not be shown)";
     }
     const truncated = full.length > MAX_INPUT_CHARS;
-    const text = [
+    const cardText = (shotNote: string | undefined): string => [
       `Allow this tool use in job ${req.jobId}?`,
       "",
       `Tool: ${clip(req.tool, 200)}`,
       `Input: ${truncated ? `${full.slice(0, MAX_INPUT_CHARS)}…\n(cut, tap Show full input)` : full}`,
       `Cwd: ${clip(req.cwd, 200)}`,
       ...(req.summary ? [`Summary: ${clip(req.summary, 300)}`] : []),
+      ...(shotNote ? [shotNote] : []),
       `Expires: ${formatClock(deadline)}`,
     ].join("\n");
+    const attachment = req.attachments?.[0];
     return this.#ask({
       kind: "perm",
       chatId,
@@ -253,9 +273,15 @@ export class TelegramJobUi implements JobApprovalTransport {
       head: `Permission for ${req.tool} in job ${req.jobId}`,
       briefShown: true,
       fullInput: truncated ? full : undefined,
-      send: async (entry) =>
-        (
-          await this.#o.api.sendMessage(chatId, text, {
+      send: async (entry) => {
+        // The page as it is now goes out first, so the user sees what they are allowing.
+        let shotNote: string | undefined;
+        if (attachment) {
+          const failure = await this.#sendPhoto(chatId, attachment, `Job ${req.jobId}: the page before this step`);
+          if (failure !== undefined) shotNote = `(screenshot unavailable: ${failure})`;
+        }
+        return (
+          await this.#o.api.sendMessage(chatId, cardText(shotNote), {
             link_preview_options: { is_disabled: true },
             reply_markup: {
               inline_keyboard: [
@@ -264,7 +290,8 @@ export class TelegramJobUi implements JobApprovalTransport {
               ],
             },
           })
-        ).message_id,
+        ).message_id;
+      },
       result: (o, userId, reason) => {
         if (o === "approved") return { requestId: req.requestId, jobId: req.jobId, answer: "allow_once", by: "user", ...(userId !== undefined ? { userId } : {}), at: this.#now() };
         if (o === "rejected") return { ...deny("user"), ...(userId !== undefined ? { userId } : {}) };
@@ -450,6 +477,35 @@ export class TelegramJobUi implements JobApprovalTransport {
         return;
       }
       throw e;
+    }
+  }
+
+  /** REQ-0014: one screenshot of a browser job as a photo. At most 30 per job, then one text line. */
+  async postArtifact(post: JobArtifactPost): Promise<void> {
+    const chatId = this.#chatOrUndefined(post.conversationId);
+    if (chatId === undefined) return;
+    const sent = this.#photos.get(post.jobId) ?? 0;
+    this.#photos.set(post.jobId, sent + 1);
+    if (sent > MAX_PHOTOS_PER_JOB) return;
+    if (sent === MAX_PHOTOS_PER_JOB) {
+      await this.#o.api.sendMessage(chatId, `Job ${post.jobId}: more than ${MAX_PHOTOS_PER_JOB} screenshots, the rest are only in the web UI (Browser sessions).`, { link_preview_options: { is_disabled: true } }).catch(() => undefined);
+      return;
+    }
+    const failure = await this.#sendPhoto(chatId, post.artifact, post.artifact.caption);
+    if (failure !== undefined) this.#o.logger.warn("telegram.job_photo_skipped", { jobId: post.jobId, reason: failure });
+  }
+
+  /** Sends one artifact as a photo. Returns undefined on success, else the reason it was not sent. */
+  async #sendPhoto(chatId: number, artifact: ArtifactRef, caption: string): Promise<string | undefined> {
+    const root = this.#o.artifactsRoot;
+    if (!root) return "no artifacts folder is configured";
+    const read = readArtifact(root, artifact.path, artifact.sha256);
+    if (!read.ok) return read.reason;
+    try {
+      await this.#o.api.sendPhoto(chatId, new InputFile(read.bytes, "shot.png"), { caption: cleanCaption(caption) });
+      return undefined;
+    } catch (e) {
+      return `Telegram refused the photo (${(e as Error).name})`;
     }
   }
 

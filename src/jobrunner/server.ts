@@ -3,7 +3,7 @@
  * and oversize rejection, one `warn` per rejection) and adds the handler:
  *
  *   - the agent (principal `main`, the shared `ipcHmacKey`) may send `submit`, `cancel`, `status`, `list_templates`,
- *     `hub_status`, `hub_start` and `permission_decision`. Its bodies are validated strictly: a `submit` is only
+ *     `hub_status`, `hub_start`, `browser_action` and `permission_decision`. Its bodies are validated strictly: a `submit` is only
  *     `{jobId, request: {templateId, params, brief}, approval, flowBudgetCredits?, resume?}`; a `command`, `prompt` or
  *     `cwd` field anywhere is refused (I16);
  *   - a permission helper (principal `job:<id>`, the per-job token, I28) may send ONE type, `permission_request`, for its
@@ -30,6 +30,8 @@ import type {
   SubmitBody,
 } from "../jobs/contracts.js";
 import { MAX_BRIEF_CHARS, parseJobRequest } from "../jobs/contracts.js";
+import { BROWSER_KEYS } from "../jobs/browserContracts.js";
+import type { BrowserAction, BrowserActionBody, BrowserKey } from "../jobs/browserContracts.js";
 import type { PermissionBroker } from "./drivers/claude/permissionBroker.js";
 import { JOB_ID_PATTERN } from "./journal.js";
 import type { JobKeyRegistry, JobManager } from "./manager.js";
@@ -137,6 +139,99 @@ function parseFlowEstimateBody(body: JsonObject): FlowEstimateBody {
   return { templateId: body["templateId"], params: params as JsonObject };
 }
 
+const BROWSER_CALL_ID = /^[A-Za-z0-9_.:-]{1,100}$/;
+const BROWSER_REF = /^e\d{1,5}$/;
+
+function browserText(v: unknown, what: string, max: number): string {
+  if (typeof v !== "string" || v.length > max) throw new IpcHandlerError("bad_request", `${what} must be text of at most ${max} characters`);
+  return v;
+}
+
+function browserRef(v: unknown, what: string): string {
+  if (typeof v !== "string" || !BROWSER_REF.test(v)) throw new IpcHandlerError("bad_request", `${what} must be an element id from browser_read (like e12)`);
+  return v;
+}
+
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+/** Typed text and fill values: no CR, LF or other control character (an Enter inside the text would submit a form unasked; use browser_press Enter, which is checked). */
+function browserTyped(v: unknown, what: string): string {
+  const t = browserText(v, what, 2000);
+  if (CONTROL_CHARS.test(t)) throw new IpcHandlerError("bad_request", `${what} must not contain line breaks or control characters; to press Enter use browser_press with key Enter`);
+  return t;
+}
+
+function browserBool(v: unknown, what: string): boolean {
+  if (typeof v !== "boolean") throw new IpcHandlerError("bad_request", `${what} must be true or false`);
+  return v;
+}
+
+function parseBrowserAction(v: unknown): BrowserAction {
+  const a = obj(v, "action");
+  const op = a["op"];
+  switch (op) {
+    case "goto": {
+      onlyKeys(a, ["op", "url"], "action goto");
+      const url = browserText(a["url"], "url", 2048);
+      if (!/^https?:\/\//i.test(url)) throw new IpcHandlerError("bad_request", "url must start with http:// or https://");
+      return { op, url };
+    }
+    case "back":
+      onlyKeys(a, ["op"], "action back");
+      return { op };
+    case "read": {
+      onlyKeys(a, ["op", "maxChars"], "action read");
+      if (a["maxChars"] === undefined) return { op };
+      const m = a["maxChars"];
+      if (typeof m !== "number" || !Number.isInteger(m) || m < 1000 || m > 40_000) throw new IpcHandlerError("bad_request", "maxChars must be an integer from 1000 to 40000");
+      return { op, maxChars: m };
+    }
+    case "click":
+      onlyKeys(a, ["op", "ref"], "action click");
+      return { op, ref: browserRef(a["ref"], "ref") };
+    case "type": {
+      onlyKeys(a, ["op", "ref", "text", "clear"], "action type");
+      const out: Extract<BrowserAction, { op: "type" }> = { op, ref: browserRef(a["ref"], "ref"), text: browserTyped(a["text"], "text") };
+      if (a["clear"] !== undefined) out.clear = browserBool(a["clear"], "clear");
+      return out;
+    }
+    case "fill": {
+      onlyKeys(a, ["op", "fields"], "action fill");
+      const f = a["fields"];
+      if (!Array.isArray(f) || f.length < 1 || f.length > 20) throw new IpcHandlerError("bad_request", "fields must be a list of 1 to 20 fields");
+      const fields = f.map((x, i) => {
+        const o = obj(x, `fields[${i}]`);
+        onlyKeys(o, ["ref", "value"], `fields[${i}]`);
+        return { ref: browserRef(o["ref"], `fields[${i}].ref`), value: browserTyped(o["value"], `fields[${i}].value`) };
+      });
+      return { op, fields };
+    }
+    case "press": {
+      onlyKeys(a, ["op", "key", "ref"], "action press");
+      if (typeof a["key"] !== "string" || !(BROWSER_KEYS as readonly string[]).includes(a["key"])) throw new IpcHandlerError("bad_request", `key must be one of ${BROWSER_KEYS.join(", ")}`);
+      const out: Extract<BrowserAction, { op: "press" }> = { op, key: a["key"] as BrowserKey };
+      if (a["ref"] !== undefined) out.ref = browserRef(a["ref"], "ref");
+      return out;
+    }
+    case "screenshot": {
+      onlyKeys(a, ["op", "fullPage"], "action screenshot");
+      return a["fullPage"] === undefined ? { op } : { op, fullPage: browserBool(a["fullPage"], "fullPage") };
+    }
+    case "done":
+      onlyKeys(a, ["op", "summary"], "action done");
+      return { op, summary: browserText(a["summary"], "summary", 2000) };
+    default:
+      throw new IpcHandlerError("bad_request", "action.op is not a known browser operation");
+  }
+}
+
+/** Strict: only `jobId`, `callId` and `action`; each op takes only its own keys, with the limits of `browserContracts.ts`. */
+export function parseBrowserActionBody(body: JsonObject): BrowserActionBody {
+  onlyKeys(body, ["jobId", "callId", "action"], "browser_action");
+  if (typeof body["callId"] !== "string" || !BROWSER_CALL_ID.test(body["callId"])) throw new IpcHandlerError("bad_request", "callId must be 1 to 100 letters, digits, _ . : or -");
+  return { jobId: jobIdOf(body["jobId"]), callId: body["callId"], action: parseBrowserAction(body["action"]) };
+}
+
 function parseDecision(body: JsonObject): PermissionDecision {
   onlyKeys(body, ["requestId", "jobId", "answer", "by", "userId", "at", "message"], "permission_decision");
   if (typeof body["requestId"] !== "string") throw new IpcHandlerError("bad_request", "requestId is required");
@@ -187,6 +282,8 @@ export function createHandler(manager: JobManager, brokers: readonly Pick<Permis
         return (await manager.hubStart(parseHubStartBody(body))) as unknown as Json;
       case "flow_estimate":
         return (await manager.flowEstimate(parseFlowEstimateBody(body))) as unknown as Json;
+      case "browser_action":
+        return (await manager.browserAction(parseBrowserActionBody(body))) as unknown as Json;
       case "permission_decision":
         manager.decidePermission(parseDecision(body));
         return undefined;

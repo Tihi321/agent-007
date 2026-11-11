@@ -14,6 +14,7 @@
 import { connect } from "node:net";
 import type { Socket } from "node:net";
 import type { Logger } from "../contracts.js";
+import type { BrowserActionBody, BrowserActionReply } from "../jobs/browserContracts.js";
 import type {
   CallOptions,
   CancelBody,
@@ -196,6 +197,11 @@ export class IpcClient implements JobRunnerClient {
 
   flowEstimate(body: FlowEstimateBody, opts?: CallOptions): Promise<FlowEstimateReply> {
     return this.call("flow_estimate", body, opts);
+  }
+
+  /** The caller passes `opts.timeoutMs`: an asked step waits for the user (approval timeout + margin). */
+  browserAction(body: BrowserActionBody, opts?: CallOptions): Promise<BrowserActionReply> {
+    return this.call("browser_action", body, opts);
   }
 
   async answerPermission(decision: PermissionDecision): Promise<void> {

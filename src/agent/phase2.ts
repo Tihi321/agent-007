@@ -21,6 +21,8 @@ import { IpcClient } from "../ipc/client.js";
 import type { JobRunnerClient, JobTemplateSummary } from "../jobs/contracts.js";
 import { flowLedgerDoc } from "../jobs/ledger.js";
 import { createRunnerFlowEstimator } from "../jobs/flowEstimate.js";
+import { createBrowserExtension } from "../browser/tools.js";
+import { JobTracker } from "../jobs/task.js";
 import { createJobsExtension, fileTemplates, runnerTemplates } from "../jobs/tools.js";
 import type { FlowEstimator, JobsExtension, TemplateSource } from "../jobs/tools.js";
 import { McpHub } from "../mcp/registry.js";
@@ -109,6 +111,10 @@ export function jobResultMessage(job: { jobId: string; templateId: string; resul
   ].join("\n");
 }
 
+export function browserReadyMessage(jobId: string): string {
+  return `Browser session ${jobId} is running. Use the browser_* tools (find them with tool_search), start with browser_read. Risky steps ask the user in Telegram.`;
+}
+
 export async function createPhase2(deps: Phase2Deps): Promise<Phase2Handle> {
   const { config, secrets, logger: log, bridge } = deps;
   const o = deps.options ?? {};
@@ -136,6 +142,9 @@ export async function createPhase2(deps: Phase2Deps): Promise<Phase2Handle> {
     allowedUserIds: config.telegram.allowedUserIds,
     chats: bridge.chatLookup,
     logger: log,
+    // REQ-0014: where the job runner writes browser screenshots (absent = photos are not delivered). T7 adds the artifactsRoot option;
+    // spread so this line builds with or without it.
+    ...(config.paths.jobArtifactsDir !== undefined ? { artifactsRoot: config.paths.jobArtifactsDir } : {}),
     ...(o.jobUi ?? {}),
   });
 
@@ -159,7 +168,13 @@ export async function createPhase2(deps: Phase2Deps): Promise<Phase2Handle> {
   const flowEstimator: FlowEstimator = o.flowEstimator ?? createRunnerFlowEstimator(client);
 
   let harnessRef: () => Harness | undefined = deps.getHarness;
+  const tracker = new JobTracker();
+  // REQ-0014: tell the model once that its browser session is running (the same requestId on a repeat is ignored).
+  tracker.onRunning = async (job) => {
+    await bridge.injectInput(job.conversationId, browserReadyMessage(job.jobId), `browser-ready:${job.jobId}`);
+  };
   const jobs = createJobsExtension({
+    tracker,
     templates,
     client,
     transport: jobUi,
@@ -176,9 +191,14 @@ export async function createPhase2(deps: Phase2Deps): Promise<Phase2Handle> {
     onSettled: async (job) => {
       // The user already saw a rejection on its card; every other end goes back to the model once (requestId = the job id).
       if (job.result.state === "rejected") return;
+      // A browser session the model ended itself with browser_done needs no second turn.
+      if (job.engine === "browser" && job.result.state === "succeeded") return;
       await bridge.injectInput(job.conversationId, jobResultMessage(job), `job-result:${job.jobId}`);
     },
   });
+
+  // REQ-0014: the nine deferred browser tools (main agent; the catalogs keep them out of user bots, web bots, peer turns and cloud routes)
+  const browserExtension = createBrowserExtension({ client, tracker: jobs.tracker, templates, logger: log, timeoutMs: (config.jobs.approvalTimeoutSec + 120) * 1000 });
 
   // 4. creative-hub MCP tools; Flow tools get the atomic charge
   let registry: Registry | undefined;
@@ -245,7 +265,7 @@ export async function createPhase2(deps: Phase2Deps): Promise<Phase2Handle> {
     hub,
     jobUi,
     templates,
-    installs: [createToolSearchExtension() as Extension, mcpExtension(), jobs.extension],
+    installs: [createToolSearchExtension() as Extension, mcpExtension(), jobs.extension, browserExtension],
     beforeTool: [jobs.flowGuard.beforeTool],
     ipcEnabled,
     attachRegistry(r) {

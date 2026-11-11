@@ -30,6 +30,16 @@ export interface EngineConfig {
   verified?: boolean;
   /** `claude` only: absolute path of the real `claude.exe`. Absent means `claude` on the main user's PATH. */
   path?: string;
+  /** `browser` only (REQ-0014): headless Chromium unless a visible window is wanted for debugging. */
+  headless?: boolean;
+  /** `browser` only: the isolated Chromium profile (default `<dataDir>\browser\profile`). */
+  profileDir?: string;
+  /** `browser` only: where screenshots and manifests are written (default `<dataDir>\browser\shots`). */
+  artifactsDir?: string;
+  /** `browser` only: where the pinned Playwright Chromium is installed (default `<dataDir>\browser\ms-playwright`). */
+  browsersDir?: string;
+  /** `browser` only: minutes without an action before the session is closed. */
+  idleMin?: number;
 }
 
 export interface HubConfig {
@@ -203,6 +213,7 @@ export function parseJobRunnerConfig(raw: unknown, env: ConfigEnv = {}): JobRunn
       claude: r.int(concRaw["claude"], "limits.maxConcurrent.claude", 1, 1, 4),
       dsh: r.int(concRaw["dsh"], "limits.maxConcurrent.dsh", 1, 1, 4),
       hub: r.int(concRaw["hub"], "limits.maxConcurrent.hub", 1, 1, 4),
+      browser: r.int(concRaw["browser"], "limits.maxConcurrent.browser", 1, 1, 1),
     },
     maxDurationMin: r.int(limRaw["maxDurationMin"], "limits.maxDurationMin", 360, 1, 1440),
     outputCapBytes: r.int(limRaw["outputCapBytes"], "limits.outputCapBytes", 5 * 1024 * 1024, 1024, 512 * 1024 * 1024),
@@ -213,7 +224,11 @@ export function parseJobRunnerConfig(raw: unknown, env: ConfigEnv = {}): JobRunn
 
   const engRaw = r.obj(top["engines"], "engines", [...JOB_ENGINES]);
   const engOne = (name: JobEngine, defEnabled: boolean): EngineConfig => {
-    const e = r.obj(engRaw[name], `engines.${name}`, name === "dsh" ? ["enabled", "verified"] : name === "claude" ? ["enabled", "path"] : ["enabled"]);
+    const e = r.obj(
+      engRaw[name],
+      `engines.${name}`,
+      name === "dsh" ? ["enabled", "verified"] : name === "claude" ? ["enabled", "path"] : name === "browser" ? ["enabled", "headless", "profileDir", "artifactsDir", "browsersDir", "idleMin"] : ["enabled"],
+    );
     const out: EngineConfig = { enabled: r.bool(e["enabled"], `engines.${name}.enabled`, defEnabled) };
     if (name === "dsh") out.verified = r.bool(e["verified"], "engines.dsh.verified", false);
     if (name === "claude" && e["path"] !== undefined) {
@@ -221,13 +236,22 @@ export function parseJobRunnerConfig(raw: unknown, env: ConfigEnv = {}): JobRunn
       if (!/\.exe$/i.test(p)) problems.push("engines.claude.path must be a real executable (.exe): the driver never runs a shell or a .cmd file");
       out.path = p;
     }
+    if (name === "browser") {
+      const base = win32.join(paths.dataDir, "browser");
+      out.headless = r.bool(e["headless"], "engines.browser.headless", true);
+      out.profileDir = r.absPath(e["profileDir"], "engines.browser.profileDir", win32.join(base, "profile"));
+      out.artifactsDir = r.absPath(e["artifactsDir"], "engines.browser.artifactsDir", win32.join(base, "shots"));
+      out.browsersDir = r.absPath(e["browsersDir"], "engines.browser.browsersDir", win32.join(base, "ms-playwright"));
+      out.idleMin = r.int(e["idleMin"], "engines.browser.idleMin", 10, 1, 120);
+    }
     return out;
   };
   // dsh is off until S13.4 and the live probe (S13.2); everything else is on.
-  const engines: Record<JobEngine, EngineConfig> = { claude: engOne("claude", true), dsh: engOne("dsh", false), hub: engOne("hub", true) };
+  const engines: Record<JobEngine, EngineConfig> = { claude: engOne("claude", true), dsh: engOne("dsh", false), hub: engOne("hub", true), browser: engOne("browser", true) };
 
   const cwdAllowlist = r.pathList(top["cwdAllowlist"], "cwdAllowlist", [DEFAULT_HUB_DIR], true);
   const denyPaths = r.pathList(top["denyPaths"], "denyPaths", ["C:\\Pixotope", "C:\\ProgramData\\agent-007"], false);
+  checkBrowserDirs(engines.browser, cwdAllowlist, problems);
 
   const hubRaw = r.obj(top["hub"], "hub", ["dir", "services", "servicesFile", "pwsh", "ports", "startTimeoutSec", "statusTimeoutSec"]);
   const portsRaw = r.obj(hubRaw["ports"], "hub.ports", "any");
@@ -270,6 +294,32 @@ export function parseJobRunnerConfig(raw: unknown, env: ConfigEnv = {}): JobRunn
   if (settingsUi.port === ipcPort) problems.push("settingsUi.port must differ from ipcPort");
   if (problems.length > 0) throw new ConfigError(problems);
   return { ipcPort, paths, settingsUi, cwdAllowlist, denyPaths, limits, engines, hub, flow };
+}
+
+const BROWSER_PROFILE_REFUSED = ["\\google\\chrome\\", "\\microsoft\\edge\\", "\\chromium\\", "\\bravesoftware\\", "\\opera software\\"];
+
+function normDir(p: string): string {
+  return win32.normalize(p).replace(/[\\/]+$/, "").toLowerCase();
+}
+
+function isInside(child: string, parent: string): boolean {
+  const c = normDir(child);
+  const p = normDir(parent);
+  return c === p || c.startsWith(`${p}\\`);
+}
+
+/** The browser profile must be the runner's own: never a real browser's profile, never shared with screenshots or a job cwd. */
+function checkBrowserDirs(b: EngineConfig, cwdAllowlist: string[], problems: string[]): void {
+  const profile = b.profileDir;
+  if (profile === undefined) return;
+  const lower = `${normDir(profile)}\\`;
+  if (BROWSER_PROFILE_REFUSED.some((x) => lower.includes(x)) || lower.endsWith("\\user data\\")) {
+    problems.push("engines.browser.profileDir must not be a Chrome, Edge, Chromium, Brave or Opera profile folder: use a folder only the job runner owns");
+  }
+  const others = [...(b.artifactsDir === undefined ? [] : [b.artifactsDir]), ...cwdAllowlist];
+  for (const o of others) {
+    if (isInside(profile, o) || isInside(o, profile)) problems.push(`engines.browser.profileDir must not be inside or contain "${o}" (screenshots and job folders are not the browser profile)`);
+  }
 }
 
 // ---- limits ---------------------------------------------------------------------------------------

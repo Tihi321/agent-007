@@ -30,6 +30,8 @@ export interface TrayActions {
   restart(s: SvcName): void;
   retry(s: SvcName): void;
   openJobrunnerUi(): void;
+  /** REQ-0014: opens the browser engine's login window (`browser-login`) so the owner can sign in to sites once. */
+  browserLogin(): void;
   openLogs(): void;
   openData(): void;
   setLaunchAtLogin(on: boolean): void;
@@ -90,7 +92,10 @@ export class TrayController {
     if (active) items.push({ label: `Restart ${TITLES[name].toLowerCase()}`, click: () => a.restart(name) });
     if (v.state === "error") items.push({ label: `Retry ${TITLES[name].toLowerCase()}`, click: () => a.retry(name) });
     if (name === "gateway" && v.elsewhere) items.push({ label: "Open the running gateway", click: () => a.openGateway() });
-    if (name === "jobrunner" && v.state === "running") items.push({ label: "Open settings UI", click: () => a.openJobrunnerUi() });
+    if (name === "jobrunner") {
+      if (v.state === "running") items.push({ label: "Open settings UI", click: () => a.openJobrunnerUi() });
+      items.push({ label: "Browser login...", enabled: active, click: () => a.browserLogin() });
+    }
     return items;
   }
 

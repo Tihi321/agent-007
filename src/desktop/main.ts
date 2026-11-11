@@ -417,6 +417,32 @@ async function openJobrunnerUi(): Promise<void> {
   }
 }
 
+let browserLoginRunning = false;
+
+/**
+ * REQ-0014: "Browser login..." spawns `browser-login` of the job runner with the bundled node. The command opens a visible browser
+ * window and ends when the owner closes it, so there is no timeout; a non-zero exit shows its last output line in a dialog.
+ */
+async function browserLogin(): Promise<void> {
+  if (browserLoginRunning) return;
+  browserLoginRunning = true;
+  try {
+    const r = await new Promise<{ code: number; text: string }>((resolve) => {
+      execFile(layout.nodeExe, [sp.jobrunner, "browser-login", "--config", join(root, "jobrunner", "jobrunner.json")], { cwd: layout.appDir, env: cleanEnv(), windowsHide: false, maxBuffer: 1 << 20 }, (err, stdout, stderr) => {
+        const code = err ? (typeof (err as { code?: unknown }).code === "number" ? (err as { code: number }).code : 1) : 0;
+        const text = `${String(stdout ?? "")}\n${String(stderr ?? "")}`.split(/\r?\n/).map((l) => l.trim()).filter((l) => l !== "");
+        resolve({ code, text: text[text.length - 1] ?? (err ? err.message : "") });
+      });
+    });
+    if (r.code !== 0) {
+      log(`job runner: browser-login exited with ${r.code}`);
+      await say("Browser login did not finish", r.text.slice(0, 500) || `The command exited with code ${r.code}.`);
+    }
+  } finally {
+    browserLoginRunning = false;
+  }
+}
+
 /** Start from the tray: the job runner warning shows every time the toggle goes from off to on. */
 async function trayStart(s: SvcName): Promise<void> {
   if (s === "gateway" || settings[s]) await startService(s);
@@ -606,6 +632,7 @@ async function main(): Promise<void> {
     restart: (s) => void restartService(s),
     retry: (s) => void restartService(s),
     openJobrunnerUi: () => void openJobrunnerUi(),
+    browserLogin: () => void browserLogin(),
     openLogs: () => openFolder("logs"),
     openData: () => openFolder("data"),
     setLaunchAtLogin: (on) => void applyToggles({ launchAtLogin: on }),

@@ -52,6 +52,7 @@ export function summarizeTemplate(t: JobTemplate): JobTemplateSummary {
   const cloud: JobTemplateSummary["cloud"] = [];
   if (t.engine === "claude") cloud.push("claude-subscription");
   if (t.engine === "dsh") cloud.push("deepseek-api");
+  if (t.engine === "browser") cloud.push("web-browsing");
   if (t.flow.enabled) cloud.push("google-flow");
   return {
     id: t.id,

@@ -246,7 +246,7 @@ export function parseTemplate(raw: unknown, ctx: TemplateContext): TemplateParse
   if (description === undefined) errs.push("description is required");
 
   const engine = raw["engine"];
-  if (typeof engine !== "string" || !(JOB_ENGINES as readonly string[]).includes(engine)) errs.push('engine must be "claude", "dsh" or "hub"');
+  if (typeof engine !== "string" || !(JOB_ENGINES as readonly string[]).includes(engine)) errs.push('engine must be "claude", "dsh", "hub" or "browser"');
   const eng = engine as JobEngine;
 
   const cwd = raw["cwd"];
@@ -296,6 +296,14 @@ export function parseTemplate(raw: unknown, ctx: TemplateContext): TemplateParse
     }
   }
 
+  // the browser engine runs no model and no tools: the runner owns the page, so nothing may widen it
+  if (eng === "browser") {
+    if (allowedTools.length > 0) errs.push("a browser template must have allowedTools: []");
+    if (mcpServers.length > 0) errs.push("a browser template must have mcpServers: []");
+    if (autostart.length > 0) errs.push("a browser template must have autostart: []");
+    if (raw["paidModels"] !== false) errs.push("a browser template must have paidModels: false");
+  }
+
   // flow
   const flowRaw = raw["flow"] ?? { enabled: false };
   const flow: JobTemplate["flow"] = { enabled: false };
@@ -316,6 +324,7 @@ export function parseTemplate(raw: unknown, ctx: TemplateContext): TemplateParse
       if (typeof flowRaw["maxCredits"] !== "number" || !Number.isInteger(flowRaw["maxCredits"]) || flowRaw["maxCredits"] <= 0) errs.push("flow.maxCredits must be a positive integer");
       else flow.maxCredits = flowRaw["maxCredits"];
     }
+    if (eng === "browser" && flow.enabled) errs.push("a browser template must have flow.enabled: false");
     if (flow.enabled) {
       if (flow.maxCredits === undefined) errs.push("a Flow template needs flow.maxCredits (the per-template cap, I22)");
       if (flow.estimate === undefined && flow.estimator === undefined) errs.push("a Flow template needs flow.estimate or flow.estimator (shown on the card)");
@@ -379,6 +388,7 @@ export function cloudUse(t: JobTemplate): CloudUse[] {
   const out: CloudUse[] = [];
   if (t.engine === "claude") out.push("claude-subscription");
   if (t.engine === "dsh") out.push("deepseek-api");
+  if (t.engine === "browser") out.push("web-browsing");
   if (t.flow.enabled) out.push("google-flow");
   return out;
 }

@@ -31,6 +31,16 @@ export const KNOWN_TOOLS: readonly string[] = [
   "tts_line",
   "chiptune_loop",
   "comfy_image",
+  // REQ-0014: the browser tools (main agent only; deferred, found through tool_search)
+  "browser_goto",
+  "browser_back",
+  "browser_read",
+  "browser_click",
+  "browser_type",
+  "browser_fill",
+  "browser_press",
+  "browser_screenshot",
+  "browser_done",
 ];
 
 /** The macro tool names (a subset of `KNOWN_TOOLS`); each needs the macro enabled on some MCP server. */
@@ -51,4 +61,4 @@ export const READONLY_TOOLS: readonly string[] = [
 ];
 
 /** Tools that, whichever persona is active, change files, run commands, spend money or start work. Named for cards and summaries. */
-export const SENSITIVE_TOOLS: readonly string[] = ["shell", "write_file", "remember", "dispatch_job", "hub_start"];
+export const SENSITIVE_TOOLS: readonly string[] = ["shell", "write_file", "remember", "dispatch_job", "hub_start", "browser_goto", "browser_click", "browser_type", "browser_fill", "browser_press"];

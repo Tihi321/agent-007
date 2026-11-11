@@ -22,7 +22,7 @@ export const JOBRUNNER_LIMITS_SCHEMA: Schema = {
           type: "object",
           additionalProperties: false,
           "x-ui": { label: "Jobs running at once" },
-          properties: { claude: int(1, 4, 1, "Claude Code"), dsh: int(1, 4, 1, "DeepSeek"), hub: int(1, 4, 1, "Hub services") },
+          properties: { claude: int(1, 4, 1, "Claude Code"), dsh: int(1, 4, 1, "DeepSeek"), hub: int(1, 4, 1, "Hub services"), browser: int(1, 1, 1, "Browser (one profile)") },
         },
         maxDurationMin: int(1, 1440, 360, "Longest job (minutes)"),
         outputCapBytes: int(1024, 512 * 1024 * 1024, 5 * 1024 * 1024, "Output cap (bytes)"),
