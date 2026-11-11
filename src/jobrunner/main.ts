@@ -150,7 +150,7 @@ export interface RunningJobRunner {
 
 async function loadConventionDrivers(ctx: Omit<DriverFactoryContext, "engine">): Promise<Partial<Record<JobEngine, EngineDriver>>> {
   const out: Partial<Record<JobEngine, EngineDriver>> = {};
-  for (const engine of ["claude", "dsh"] as const) {
+  for (const engine of ["claude", "dsh", "browser"] as const) {
     if (!ctx.config.engines[engine].enabled) continue;
     try {
       const url = new URL(`./drivers/${engine}/index.js`, import.meta.url).href;
@@ -329,8 +329,24 @@ export function runSettingsLink(argv: readonly string[], out: (line: string) => 
   return 0;
 }
 
+/**
+ * browser-install / browser-login (REQ-0014): run by the MAIN user in their own terminal. The work is in
+ * `drivers/browser/cli.ts`, loaded on demand so the other commands never load Playwright. `argv` is what follows the subcommand.
+ */
+export async function runBrowserSubcommand(sub: "browser-install" | "browser-login", argv: readonly string[]): Promise<number> {
+  const url = new URL("./drivers/browser/cli.js", import.meta.url).href;
+  const mod = (await import(url)) as { runBrowserCli?: (sub: "browser-install" | "browser-login", argv: string[]) => Promise<number> };
+  if (typeof mod.runBrowserCli !== "function") {
+    process.stderr.write(`${sub}: the browser command line is not available in this build
+`);
+    return 1;
+  }
+  return mod.runBrowserCli(sub, [...argv]);
+}
+
 export async function runMain(argv: readonly string[] = process.argv.slice(2)): Promise<number> {
   if (argv[0] === "settings-link") return runSettingsLink(argv.slice(1));
+  if (argv[0] === "browser-install" || argv[0] === "browser-login") return runBrowserSubcommand(argv[0], argv.slice(1));
   const configPath = resolve(argValue(argv, "--config") ?? join(DEFAULT_PROGRAM_DATA_JOBRUNNER, "jobrunner.json"));
   let runner: RunningJobRunner;
   try {

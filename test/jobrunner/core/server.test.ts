@@ -18,7 +18,7 @@ import { JobKeyRegistry } from "../../../src/jobrunner/manager.js";
 import type { CoreEngineHost } from "../../../src/jobrunner/manager.js";
 import { JobRunnerSecretsError, parseJobRunnerSecrets, startJobRunner } from "../../../src/jobrunner/main.js";
 import type { RunningJobRunner } from "../../../src/jobrunner/main.js";
-import { startJobRunnerServer } from "../../../src/jobrunner/server.js";
+import { parseBrowserActionBody, startJobRunnerServer } from "../../../src/jobrunner/server.js";
 import type { JobDone, JobEvent, JsonObject, PermissionRequest } from "../../../src/jobs/contracts.js";
 import { LockHeldError } from "../../../src/runtime/lock.js";
 import { KEY_TEXT_A, KEY_TEXT_B, captureLogger, rawConnect, sleep, waitFor } from "../../ipc/helpers.js";
@@ -327,4 +327,22 @@ test("the secrets file is validated and an error never echoes its content", () =
   const s = parseJobRunnerSecrets(JSON.stringify({ ipcHmacKey: KEY_TEXT_A, deepseekApiKey: "ds-key" }));
   assert.equal(String(s.ipcKey), "[IpcKey]");
   assert.deepEqual(s.redactValues, [KEY_TEXT_A, "ds-key"]);
+});
+
+test("browser_action bodies are strict: unknown keys anywhere, bad refs, urls, keys and sizes are bad_request", () => {
+  const ok = { jobId: "job-1", callId: "c1", action: { op: "type", ref: "e12", text: "hello" } };
+  assert.deepEqual(parseBrowserActionBody(ok as never), ok);
+  assert.deepEqual(parseBrowserActionBody({ jobId: "job-1", callId: "c2", action: { op: "fill", fields: [{ ref: "e1", value: "x" }] } } as never).action, { op: "fill", fields: [{ ref: "e1", value: "x" }] });
+  const bad: unknown[] = [
+    { ...ok, extra: 1 },
+    { ...ok, action: { ...ok.action, selector: "#a" } },
+    { ...ok, action: { op: "click", ref: "#submit" } },
+    { ...ok, action: { op: "goto", url: "file:///c:/x" } },
+    { ...ok, action: { op: "press", key: "F12" } },
+    { ...ok, action: { op: "type", ref: "e1", text: "x".repeat(2001) } },
+    { ...ok, action: { op: "nope" } },
+    { ...ok, callId: "has space" },
+    { jobId: "job-1", callId: "c1" },
+  ];
+  for (const b of bad) assert.throws(() => parseBrowserActionBody(b as never), (e: unknown) => (e as { code?: string }).code === "bad_request", JSON.stringify(b));
 });

@@ -56,6 +56,8 @@ import type {
   TerminalJobState,
 } from "../jobs/contracts.js";
 import { JOB_ENGINES, isTerminalJobState } from "../jobs/contracts.js";
+import type { BrowserActionBody, BrowserActionReply } from "../jobs/browserContracts.js";
+import { readBrowserSettings } from "../settings/browser.js";
 import { redactDeep } from "../logging/redact.js";
 import type { Redactor } from "../logging/redact.js";
 import { sha256Hex } from "./audit.js";
@@ -139,6 +141,16 @@ export interface JobManagerOptions {
   isAlive?: (pid: number) => boolean;
   runnerVersion?: string;
   retentionDays?: number;
+  /**
+   * REQ-0014: true once the owner ticked `browser.acknowledged` in the settings UI. Default: read it from security.json
+   * (`readBrowserSettings`); a read error counts as not acknowledged. Tests inject it.
+   */
+  browserAcknowledged?: () => boolean;
+}
+
+/** What a driver of the `browser` engine offers beyond `EngineDriver` (T3's `BrowserEngineDriver`). */
+interface BrowserActor {
+  act(jobId: string, body: BrowserActionBody, host: CoreEngineHost): Promise<BrowserActionReply>;
 }
 
 interface PendingPermission {
@@ -167,6 +179,8 @@ interface Active {
   driverTerminal: { state: TerminalJobState; detail?: string } | undefined;
   result: Extract<EventBody, { kind: "result" }> | undefined;
   done: Promise<void>;
+  /** Set once the run has built the driver host (the browser engine needs it for `browserAction`). */
+  host: CoreEngineHost | undefined;
 }
 
 const REQUEST_ID = /^[A-Za-z0-9_.:-]{1,100}$/;
@@ -191,6 +205,8 @@ export class JobManager {
   private readonly records = new Map<string, JobRecord>();
   private readonly active = new Map<string, Active>();
   private readonly queues: Record<JobEngine, string[]> = { claude: [], dsh: [], hub: [], browser: [] };
+  /** The relative paths of the `artifact` events of each job, in order (they become `JobDone.artifacts`). */
+  private readonly artifactPaths = new Map<string, string[]>();
   private readonly versions: Partial<Record<JobEngine, string>> = {};
   private notifier: JobNotifier | undefined;
   private stopping = false;
@@ -513,6 +529,18 @@ export class JobManager {
     }
   }
 
+  /** One browser step (REQ-0014): only for a running job of the browser engine; the driver does the work and the asking. */
+  async browserAction(body: BrowserActionBody): Promise<BrowserActionReply> {
+    const rec = this.records.get(body.jobId);
+    if (!rec) throw new IpcHandlerError("not_found", `unknown job "${body.jobId}"`);
+    if (rec.engine !== "browser") throw new IpcHandlerError("unsupported", `the job "${body.jobId}" is not a browser job`);
+    const act = this.active.get(body.jobId);
+    if (rec.state !== "running" || !act || act.finished || act.host === undefined) throw new IpcHandlerError("not_running", `the browser job "${body.jobId}" is not running (state: ${rec.state})`);
+    const driver = act.driver as Partial<BrowserActor>;
+    if (typeof driver.act !== "function") throw new IpcHandlerError("unsupported", "the browser driver does not take actions");
+    return driver.act(body.jobId, body, act.host);
+  }
+
   // ---- permissions ----------------------------------------------------------------------------------
 
   /** The agent's `permission_decision` (no reply). A decision for an unknown job or request is ignored with a warning. */
@@ -664,6 +692,7 @@ export class JobManager {
       driverTerminal: undefined,
       result: undefined,
       done: Promise.resolve(),
+      host: undefined,
     };
     this.active.set(rec.jobId, act);
     this.emit(rec, { kind: "state", state: "running", ...(resume ? { detail: "resumed" } : {}) });
@@ -715,6 +744,7 @@ export class JobManager {
         ...(rec.flowBudgetCredits !== undefined ? { flowBudgetCredits: rec.flowBudgetCredits } : {}),
         host: host as EngineHost,
       };
+      act.host = host;
       if (!act.cancelRequested && !act.shuttingDown) {
         const startP = act.resume && rec.engineSessionId !== undefined ? driver.resume({ ...spec, engineSessionId: rec.engineSessionId }) : driver.start(spec);
         startP.catch(() => undefined);
@@ -833,9 +863,10 @@ export class JobManager {
       jobId: rec.jobId,
       state,
       summary: res.text.slice(0, 2000),
-      artifacts: [],
+      artifacts: this.artifactPaths.get(rec.jobId) ?? [],
       durationMs: Math.max(0, (rec.finishedAt ?? this.now()) - (rec.startedAt ?? rec.createdAt)),
     };
+    this.artifactPaths.delete(rec.jobId);
     if (res.costUsd !== undefined) done.costUsd = res.costUsd;
     if (rec.engineVersion !== undefined) done.engineVersion = rec.engineVersion;
     if (state === "failed" && detail !== undefined) done.error = detail;
@@ -866,6 +897,11 @@ export class JobManager {
     const raw = { ...body, jobId: rec.jobId, seq: rec.lastSeq + 1, ts: this.now() } as JobEvent;
     const ev = redactDeep(raw, this.o.redact);
     this.record(rec, { t: "event", at: ev.ts, jobId: rec.jobId, event: ev });
+    if (ev.kind === "artifact") {
+      const list = this.artifactPaths.get(rec.jobId) ?? [];
+      list.push(ev.artifact.path);
+      this.artifactPaths.set(rec.jobId, list);
+    }
     try {
       this.notifier?.event(ev);
     } catch (e) {
@@ -898,9 +934,18 @@ export class JobManager {
 
   private engineEnabled(engine: JobEngine): boolean {
     const c = this.o.config.engines[engine];
-    if (engine === "browser") return false; // REQ-0014 T1 stub: T4 wires the driver and the acknowledgment
     if (!c.enabled || this.o.drivers[engine] === undefined) return false;
+    if (engine === "browser") return this.browserAcknowledged();
     return engine !== "dsh" || c.verified === true;
+  }
+
+  /** The owner's browser acknowledgment (UI only). A read error is "not acknowledged": the engine stays off. */
+  private browserAcknowledged(): boolean {
+    try {
+      return (this.o.browserAcknowledged ?? (() => readBrowserSettings(this.o.config.paths.settingsDir).acknowledged))() === true;
+    } catch {
+      return false;
+    }
   }
 
   private templateEnabled(t: JobTemplate): boolean {
@@ -912,6 +957,7 @@ export class JobManager {
     const c = this.o.config.engines[t.engine];
     if (!c.enabled) return `the ${t.engine} engine is off in jobrunner.json`;
     if (this.o.drivers[t.engine] === undefined) return `no driver is installed for the ${t.engine} engine`;
+    if (t.engine === "browser") return "the browser acknowledgment is not ticked in the settings UI (Browser form)";
     return "dsh.verified is false: dsh has not passed the ask-first probe";
   }
 
