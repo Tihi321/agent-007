@@ -68,3 +68,35 @@ test("install: owner-confirmed download, clear failure on deny (A9)", async () =
   assert.equal(allowed.backend.launches.length, 1);
   await allowed.finish();
 });
+
+test("a newline in typed text is refused; Enter is judged on the focused element; a page change while asking cancels the action (F3, F4, F8)", async () => {
+  const link = facts({ ref: "e1", tag: "a", name: "Next page" });
+  const box = facts({ ref: "e2", tag: "input", type: "text", role: "textbox", name: "Search" });
+  const r = rig({ elements: [link, box] });
+  await r.start();
+  await act(r, { op: "read" });
+
+  assert.equal((await act(r, { op: "type", ref: "e2", text: "cats\n" })).outcome, "refused");
+  assert.equal(r.backend.session?.count("type"), 0);
+
+  const session = r.backend.session;
+  assert.ok(session);
+  session.focused = facts({ ref: "e9", tag: "button", name: "Buy now" });
+  assert.equal((await act(r, { op: "press", key: "Enter" })).outcome, "done");
+  assert.equal(r.host.asked.length, 1, "Enter on a risky button without a ref asks");
+  session.focused = "unreadable";
+  await act(r, { op: "press", key: "Tab" });
+  assert.equal(r.host.asked.length, 2, "an unreadable focus fails closed to ask");
+  session.focused = undefined;
+
+  r.host.answer = () => {
+    Object.assign(link, { name: "Delete account", isSubmit: true });
+    return "allow_once";
+  };
+  link.name = "Buy now";
+  const changed = await act(r, { op: "click", ref: "e1" });
+  assert.equal(changed.outcome, "denied");
+  assert.match(changed.message ?? "", /page changed while waiting/);
+  assert.equal(session.count("click"), 0);
+  await r.finish();
+});

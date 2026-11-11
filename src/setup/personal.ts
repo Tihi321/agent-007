@@ -274,25 +274,12 @@ export function personalStatus(root: string): { hasProxyKey: boolean; claudeTerm
   };
 }
 
-/** The browser-session job template (REQ-0014), written into `<root>\jobrunner\templates` when absent. */
-function browserSessionTemplate(workspace: string): Obj {
-  return {
-    id: "browser-session",
-    title: "Browser session",
-    description: "Browse the web for the user in a real browser (Chromium) and report what was found. Risky steps ask first.",
-    engine: "browser",
-    cwd: workspace,
-    prompt: "Browse the web for the user.\n\n{{brief}}",
-    params: { type: "object", properties: { startUrl: { type: "string", format: "uri", maxLength: 2048 } } },
-    permissionMode: "default",
-    allowedTools: [],
-    disallowedTools: [],
-    mcpServers: [],
-    flow: { enabled: false },
-    paidModels: false,
-    autostart: [],
-    timeoutMin: 60,
-  };
+/** The browser-session job template (REQ-0014): the shipped `config/templates/browser-session.json` with `cwd` set to the workspace (one source, so they cannot drift). */
+function browserSessionTemplate(resourcesDir: string, workspace: string): Obj {
+  const tpl = JSON.parse(readFileSync(join(resourcesDir, "config", "templates", "browser-session.json"), "utf8")) as Obj;
+  for (const k of Object.keys(tpl)) if (k.startsWith("_")) delete tpl[k];
+  tpl["cwd"] = workspace;
+  return tpl;
 }
 
 export interface JobrunnerSetup {
@@ -343,7 +330,7 @@ export function ensureJobrunner(root: string, o: { resourcesDir: string; icacls?
   const templatePath = join(jrDir, "templates", "browser-session.json");
   if (!existsSync(templatePath)) {
     mkdirSync(dirname(templatePath), { recursive: true });
-    writeFileSync(templatePath, `${JSON.stringify(browserSessionTemplate(join(root, "data", "workspace")), null, 2)}
+    writeFileSync(templatePath, `${JSON.stringify(browserSessionTemplate(o.resourcesDir, join(root, "data", "workspace")), null, 2)}
 `, "utf8");
     created.push(templatePath);
   }

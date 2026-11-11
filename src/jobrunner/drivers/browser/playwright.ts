@@ -13,7 +13,7 @@ import type { BrowserKey } from "../../../jobs/browserContracts.js";
 import type { BrowserSettings } from "../../../settings/browser.js";
 import type { BrowserBackend, BrowserSession, ElementFacts, LaunchOptions, PageSnapshot } from "./backend.js";
 import { hostMatches } from "./classify.js";
-import { FACTS_SCRIPT, SNAPSHOT_SCRIPT } from "./snapshot.js";
+import { ACTIVE_FACTS_SCRIPT, FACTS_SCRIPT, SNAPSHOT_SCRIPT } from "./snapshot.js";
 
 export interface PlaywrightBackendOptions {
   /** Domain lists for the request guard, read per request (cached for a short time). */
@@ -156,6 +156,10 @@ export class PlaywrightBackend implements BrowserBackend {
       async facts(ref) {
         if (!REF.test(ref)) return undefined;
         const f = (await page.evaluate(FACTS_SCRIPT, ref)) as ElementFacts | null;
+        return f ?? undefined;
+      },
+      async activeFacts() {
+        const f = (await page.evaluate(ACTIVE_FACTS_SCRIPT)) as ElementFacts | null;
         return f ?? undefined;
       },
       async click(ref) {

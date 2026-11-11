@@ -73,7 +73,14 @@ export class FakeSession implements BrowserSession {
     };
   }
   async facts(ref: string) {
-    return this.elements.find((e) => e.ref === ref);
+    const e = this.elements.find((x) => x.ref === ref);
+    return e === undefined ? undefined : { ...e }; // a fresh object per read, like the page
+  }
+  /** Set by a test: the element that has focus (what the real page reports), or "unreadable". */
+  focused: ElementFacts | "unreadable" | undefined;
+  async activeFacts() {
+    if (this.focused === "unreadable") throw new Error("cannot read the focused element");
+    return this.focused;
   }
   async click(ref: string) {
     this.log("click", ref);

@@ -152,6 +152,15 @@ function browserRef(v: unknown, what: string): string {
   return v;
 }
 
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+
+/** Typed text and fill values: no CR, LF or other control character (an Enter inside the text would submit a form unasked; use browser_press Enter, which is checked). */
+function browserTyped(v: unknown, what: string): string {
+  const t = browserText(v, what, 2000);
+  if (CONTROL_CHARS.test(t)) throw new IpcHandlerError("bad_request", `${what} must not contain line breaks or control characters; to press Enter use browser_press with key Enter`);
+  return t;
+}
+
 function browserBool(v: unknown, what: string): boolean {
   if (typeof v !== "boolean") throw new IpcHandlerError("bad_request", `${what} must be true or false`);
   return v;
@@ -182,7 +191,7 @@ function parseBrowserAction(v: unknown): BrowserAction {
       return { op, ref: browserRef(a["ref"], "ref") };
     case "type": {
       onlyKeys(a, ["op", "ref", "text", "clear"], "action type");
-      const out: Extract<BrowserAction, { op: "type" }> = { op, ref: browserRef(a["ref"], "ref"), text: browserText(a["text"], "text", 2000) };
+      const out: Extract<BrowserAction, { op: "type" }> = { op, ref: browserRef(a["ref"], "ref"), text: browserTyped(a["text"], "text") };
       if (a["clear"] !== undefined) out.clear = browserBool(a["clear"], "clear");
       return out;
     }
@@ -193,7 +202,7 @@ function parseBrowserAction(v: unknown): BrowserAction {
       const fields = f.map((x, i) => {
         const o = obj(x, `fields[${i}]`);
         onlyKeys(o, ["ref", "value"], `fields[${i}]`);
-        return { ref: browserRef(o["ref"], `fields[${i}].ref`), value: browserText(o["value"], `fields[${i}].value`, 2000) };
+        return { ref: browserRef(o["ref"], `fields[${i}].ref`), value: browserTyped(o["value"], `fields[${i}].value`) };
       });
       return { op, fields };
     }

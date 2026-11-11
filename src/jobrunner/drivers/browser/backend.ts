@@ -53,6 +53,8 @@ export interface BrowserSession {
   /** tags interactive elements with data-a7-ref="eN"; password values never returned */
   snapshot(maxChars: number): Promise<PageSnapshot>;
   facts(ref: string): Promise<ElementFacts | undefined>;
+  /** Facts of `document.activeElement` (tagged with a ref when it has none); undefined when nothing but the page has focus. Throws when unreadable. */
+  activeFacts(): Promise<ElementFacts | undefined>;
   click(ref: string): Promise<void>;
   type(ref: string, text: string, clear: boolean): Promise<void>;
   /** select: option by label, then by value */

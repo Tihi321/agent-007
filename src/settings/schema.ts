@@ -30,7 +30,7 @@ import {
 } from "../bots/schema.js";
 
 /** A browser domain entry: `example.com` or `*.example.com` (lowercase labels, no scheme, port or path). */
-const DOMAIN_PATTERN = "^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$";
+const DOMAIN_PATTERN = String.raw`^(\*\.)?([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$`;
 
 // ---- tiny constructors ------------------------------------------------------------------------------------------
 

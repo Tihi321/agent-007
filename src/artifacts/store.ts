@@ -1,6 +1,6 @@
 /** REQ-0014 safe reading of job artifacts by relative path (Telegram agent and web gateway). */
 import { createHash } from "node:crypto";
-import { readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
+import { lstatSync, readFileSync, readdirSync, realpathSync, statSync } from "node:fs";
 import path from "node:path";
 
 export type ArtifactRead = { ok: true; bytes: Buffer; mime: "image/png" } | { ok: false; reason: string };
@@ -22,8 +22,29 @@ function inside(root: string, file: string): boolean {
 export function readArtifact(root: string, rel: string, expectSha?: string): ArtifactRead {
   if (typeof rel !== "string" || !REL_RE.test(rel)) return { ok: false, reason: "not a valid artifact path" };
   try {
-    const realRoot = realpathSync(root);
-    const file = realpathSync(path.join(realRoot, ...rel.split("/")));
+    // The agent user may lack access to the root's parent folders, so the root's ancestors are not required to be readable:
+    // realpath the root when possible, else use its resolved path. The two path parts below the root (checked by REL_RE, no
+    // ".." possible) must not be links; the target's real path must still lie inside the root.
+    let realRoot = path.resolve(root);
+    try {
+      realRoot = realpathSync(root);
+    } catch {
+      /* keep the resolved path */
+    }
+    const parts = rel.split("/");
+    let cur = realRoot;
+    for (const part of parts) {
+      cur = path.join(cur, part);
+      if (lstatSync(cur).isSymbolicLink()) return { ok: false, reason: "path is outside the artifacts folder" };
+    }
+    let file = cur;
+    try {
+      file = realpathSync(cur);
+    } catch (e) {
+      const code = (e as NodeJS.ErrnoException).code;
+      if (code === "ENOENT") throw e;
+      /* no access to an ancestor: the lstat checks above stand */
+    }
     if (!inside(realRoot, file)) return { ok: false, reason: "path is outside the artifacts folder" };
     const st = statSync(file);
     if (!st.isFile()) return { ok: false, reason: "not a file" };

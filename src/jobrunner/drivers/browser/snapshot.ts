@@ -6,8 +6,10 @@
  *   - FACTS_SCRIPT(ref): the facts the classifier decides on, read from the DOM (never from what the model claims).
  */
 import type { ElementFacts, PageSnapshot } from "./backend.js";
+import { CREDENTIAL_FIELD_TEST_SOURCE } from "./classify.js";
 
 const HELPERS = `
+  ${CREDENTIAL_FIELD_TEST_SOURCE}
   const clip = (s, n) => String(s == null ? '' : s).replace(/\\s+/g, ' ').trim().slice(0, n);
   const isVisible = (el) => {
     const r = el.getBoundingClientRect();
@@ -83,7 +85,7 @@ export const SNAPSHOT_SCRIPT = `(maxChars) => {
     const tag = item.tag;
     if (type === 'checkbox' || type === 'radio') item.value = el.checked ? 'checked' : 'unchecked';
     else if (tag === 'select') item.value = clip(el.selectedOptions && el.selectedOptions[0] ? el.selectedOptions[0].textContent : '', 120);
-    else if ((tag === 'input' || tag === 'textarea') && type !== 'password' && type !== 'file' && type !== 'submit' && type !== 'button' && type !== 'reset' && type !== 'image') item.value = clip(el.value, 200);
+    else if ((tag === 'input' || tag === 'textarea') && !credentialFieldTest({ type, autocomplete: el.getAttribute('autocomplete') || '', nameAttr: el.getAttribute('name') || '', idAttr: el.getAttribute('id') || '' }) && type !== 'submit' && type !== 'button' && type !== 'reset' && type !== 'image') item.value = clip(el.value, 200);
     elements.push(item);
   }
   let text = (document.body ? document.body.innerText : '') || '';
@@ -92,27 +94,50 @@ export const SNAPSHOT_SCRIPT = `(maxChars) => {
   return { url: location.href, title: document.title || '', text: text.slice(0, maxChars), elements, truncated };
 }`;
 
+const FACTS_OF = `
+  const factsOf = (el, ref) => {
+    const tag = el.tagName.toLowerCase();
+    const type = typeOf(el);
+    const form = el.form || null;
+    const isSubmit = (tag === 'input' && (type === 'submit' || type === 'image')) || (tag === 'button' && !!form && String(el.type).toLowerCase() === 'submit');
+    const anchor = el.closest ? el.closest('a[href]') : null;
+    return {
+      ref, tag, type, role: roleOf(el), name: nameOf(el),
+      autocomplete: el.getAttribute('autocomplete') || '',
+      nameAttr: el.getAttribute('name') || '',
+      idAttr: el.getAttribute('id') || '',
+      inForm: !!form, isSubmit,
+      formAction: form ? String(form.action || '') : '',
+      formHasPassword: !!form && form.querySelector('input[type=password]') !== null,
+      href: anchor ? String(anchor.href || '') : '',
+      contentEditable: el.isContentEditable === true,
+      visible: isVisible(el),
+    };
+  };
+`;
+
 export const FACTS_SCRIPT = `(ref) => {
   ${HELPERS}
+  ${FACTS_OF}
   const el = document.querySelector('[data-a7-ref="' + ref + '"]');
-  if (!el) return null;
-  const tag = el.tagName.toLowerCase();
-  const type = typeOf(el);
-  const form = el.form || null;
-  const isSubmit = (tag === 'input' && (type === 'submit' || type === 'image')) || (tag === 'button' && !!form && String(el.type).toLowerCase() === 'submit');
-  const anchor = el.closest ? el.closest('a[href]') : null;
-  return {
-    ref, tag, type, role: roleOf(el), name: nameOf(el),
-    autocomplete: el.getAttribute('autocomplete') || '',
-    nameAttr: el.getAttribute('name') || '',
-    idAttr: el.getAttribute('id') || '',
-    inForm: !!form, isSubmit,
-    formAction: form ? String(form.action || '') : '',
-    formHasPassword: !!form && form.querySelector('input[type=password]') !== null,
-    href: anchor ? String(anchor.href || '') : '',
-    contentEditable: el.isContentEditable === true,
-    visible: isVisible(el),
-  };
+  return el ? factsOf(el, ref) : null;
+}`;
+
+/** The element that really has focus; tagged with the next free ref when it has none. Null when only the page/body has focus. */
+export const ACTIVE_FACTS_SCRIPT = `() => {
+  ${HELPERS}
+  ${FACTS_OF}
+  let el = document.activeElement;
+  while (el && el.shadowRoot && el.shadowRoot.activeElement) el = el.shadowRoot.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return null;
+  let ref = el.getAttribute('data-a7-ref');
+  if (!ref) {
+    let max = 0;
+    for (const t of document.querySelectorAll('[data-a7-ref]')) { const n = parseInt(String(t.getAttribute('data-a7-ref')).slice(1), 10); if (n > max) max = n; }
+    ref = 'e' + (max + 1);
+    el.setAttribute('data-a7-ref', ref);
+  }
+  return factsOf(el, ref);
 }`;
 
 /** The text the model gets for `read`: page text, then the numbered elements. Password values are dropped again here. */

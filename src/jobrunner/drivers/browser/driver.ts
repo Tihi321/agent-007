@@ -60,6 +60,9 @@ function str(v: unknown, max: number, min = 0): string | undefined {
   return typeof v === "string" && v.length >= min && v.length <= max ? v : undefined;
 }
 
+const CONTROL_CHARS = /[\u0000-\u001f\u007f]/;
+const CONTROL_MESSAGE = "must not contain line breaks or control characters; to press Enter use browser_press with key Enter";
+
 /** Strict validation (unknown keys refused), the same limits as the IPC contract. */
 export function parseAction(raw: unknown): Parsed {
   const bad = (message: string): Parsed => ({ ok: false, message });
@@ -96,6 +99,7 @@ export function parseAction(raw: unknown): Parsed {
       if (extra) return bad(extra);
       if (r === undefined) return bad("ref must look like e12");
       if (text === undefined) return bad("text must be a string of at most 2000 characters");
+      if (CONTROL_CHARS.test(text)) return bad(`text ${CONTROL_MESSAGE}`);
       if (clear !== undefined && typeof clear !== "boolean") return bad("clear must be a boolean");
       return { ok: true, action: { op, ref: r, text, ...(clear !== undefined ? { clear } : {}) } };
     }
@@ -110,6 +114,7 @@ export function parseAction(raw: unknown): Parsed {
         const r = ref(f["ref"]);
         const value = str(f["value"], 2000);
         if (r === undefined || value === undefined) return bad("each field needs a ref like e12 and a value of at most 2000 characters");
+        if (CONTROL_CHARS.test(value)) return bad(`value ${CONTROL_MESSAGE}`);
         out.push({ ref: r, value });
       }
       return { ok: true, action: { op, fields: out } };
@@ -188,6 +193,13 @@ class Run {
   waitForEvent(): Promise<void> {
     return new Promise<void>((r) => this.waiters.push(r));
   }
+}
+
+const CHANGED_MESSAGE = "the page changed while waiting for approval; read it again";
+
+function sameElement(a: ElementFacts | undefined, b: ElementFacts | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.tag === b.tag && a.name === b.name && a.isSubmit === b.isSubmit;
 }
 
 function oneLine(s: string, n = 300): string {
@@ -458,11 +470,29 @@ export class BrowserDriver implements BrowserEngineDriver {
     return guardReason(url, true, s);
   }
 
-  private async dispatch(run: Run, session: BrowserSession, action: BrowserAction, host: CoreEngineHost): Promise<BrowserActionReply> {
-    // facts: read from the DOM for each ref in the last snapshot
-    const refs = action.op === "click" || action.op === "type" ? [action.ref] : action.op === "fill" ? action.fields.map((f) => f.ref) : action.op === "press" ? (action.ref !== undefined ? [action.ref] : run.lastRef !== undefined ? [run.lastRef] : []) : [];
+  /**
+   * The facts the verdict is decided on, read from the DOM. A press without a ref is judged on the element that really has
+   * focus (`activeFacts`); when that cannot be read, `unreadable` is set and the caller fails closed to "ask".
+   */
+  private async gatherFacts(run: Run, session: BrowserSession, action: BrowserAction): Promise<{ refs: string[]; facts: Array<ElementFacts | undefined>; unreadable: boolean }> {
+    if (action.op === "press" && action.ref === undefined) {
+      try {
+        const f = await session.activeFacts();
+        if (f === undefined) return { refs: [], facts: [], unreadable: false };
+        run.knownRefs.add(f.ref);
+        return { refs: [f.ref], facts: [f], unreadable: false };
+      } catch {
+        return { refs: [], facts: [], unreadable: true };
+      }
+    }
+    const refs = action.op === "click" || action.op === "type" ? [action.ref] : action.op === "fill" ? action.fields.map((f) => f.ref) : action.op === "press" && action.ref !== undefined ? [action.ref] : [];
     const facts: Array<ElementFacts | undefined> = [];
     for (const r of refs) facts.push(run.knownRefs.has(r) ? await session.facts(r) : undefined);
+    return { refs, facts, unreadable: false };
+  }
+
+  private async dispatch(run: Run, session: BrowserSession, action: BrowserAction, host: CoreEngineHost): Promise<BrowserActionReply> {
+    const { refs, facts, unreadable } = await this.gatherFacts(run, session, action);
 
     if (action.op === "goto") {
       const why = this.checkGoto(action.url);
@@ -475,10 +505,22 @@ export class BrowserDriver implements BrowserEngineDriver {
       return { outcome: "refused", message: "the browser settings could not be read, so nothing was done" };
     }
     if (verdict.verdict === "refuse") return { outcome: "refused", message: verdict.reason };
+    if (verdict.verdict === "allow" && unreadable) verdict = { verdict: "ask", reason: "the element that has focus could not be read" };
     if (verdict.verdict === "ask") {
       const denied = await this.askUser(run, session, action, verdict.reason, facts, host);
       if (denied) return denied;
       if (run.ending) return { outcome: "error", message: "the browser session has ended" };
+      // the page may have changed while the user decided: read again, and do nothing if it is stricter or a different element
+      const again = await this.gatherFacts(run, session, action);
+      let now: Verdict;
+      try {
+        now = classifyAction(action, again.facts, session.url(), this.settings());
+      } catch {
+        now = { verdict: "refuse", reason: "settings unreadable" };
+      }
+      const same = again.facts.length === facts.length && facts.every((f, i) => sameElement(f, again.facts[i]));
+      if (now.verdict === "refuse" || !same || (again.unreadable && !unreadable)) return { outcome: "denied", message: CHANGED_MESSAGE };
+      return this.perform(run, session, action, again.refs.length > 0 ? again.refs : refs);
     }
     return this.perform(run, session, action, refs);
   }

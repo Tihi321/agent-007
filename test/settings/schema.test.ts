@@ -97,3 +97,10 @@ test("the security schema describes every section the forms need (descriptors dr
     assert.ok(paths.includes(p), `descriptor for ${p}`);
   }
 });
+
+test("browser domain entries: example.com and *.example.com are valid, a scheme, port or stray wildcard is not", () => {
+  const browser = SECURITY_SCHEMA.properties?.["browser"] as Schema;
+  const issues = (askDomains: string[]) => validate(browser, { acknowledged: false, askDomains }).length;
+  assert.equal(issues(["example.com", "*.example.com", "shop.example.co.uk"]), 0);
+  for (const bad of ["https://example.com", "example.com:8080", "*example.com", "*.*.example.com", "localhost"]) assert.ok(issues([bad]) > 0, bad);
+});

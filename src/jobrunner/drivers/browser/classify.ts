@@ -12,8 +12,34 @@ import type { ElementFacts } from "./backend.js";
 
 export type Verdict = { verdict: "allow" } | { verdict: "ask"; reason: string } | { verdict: "refuse"; reason: string };
 
-const CREDENTIAL_AUTOCOMPLETE = ["password", "one-time-code", "cc-number", "cc-csc", "cc-exp"];
-const CREDENTIAL_NAME = /pass(word|wd)?|pwd|otp|2fa|totp|cvv|cvc|card.?num|iban|ssn|pin\b/i;
+/**
+ * Self-contained on purpose: `snapshot.ts` embeds `credentialFieldTest.toString()` in the page script, so the page and the
+ * classifier use one rule. Names are split into words at `_`, `-`, spaces and camelCase, so "passenger_name" is not a password.
+ */
+function credentialFieldTest(f: { type: string; autocomplete: string; nameAttr: string; idAttr: string }): boolean {
+  if (f.type === "password" || f.type === "file") return true;
+  const ac = String(f.autocomplete).toLowerCase();
+  for (const t of ["password", "one-time-code", "cc-number", "cc-csc", "cc-exp"]) if (ac.includes(t)) return true;
+  const nameHit = (raw: string): boolean => {
+    const words = String(raw)
+      .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+      .toLowerCase()
+      .split(/[^a-z0-9]+/)
+      .filter((w) => w !== "");
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i] as string;
+      if (/password|passwd|passcode/.test(w)) return true;
+      if (/^(pass|pwd|pin|otp|totp|cvv|cvc|iban|ssn|2fa)\d*$/.test(w)) return true;
+      if (/^card(num|number|no)\d*$/.test(w)) return true;
+      if (w === "card" && /^(num|number|no)\d*$/.test(words[i + 1] ?? "")) return true;
+    }
+    return false;
+  };
+  return nameHit(f.nameAttr) || nameHit(f.idAttr);
+}
+/** The same function as source text, for the in-page scripts. */
+export const CREDENTIAL_FIELD_TEST_SOURCE = credentialFieldTest.toString();
+
 const RISKY_WORDS =
   /\b(send|submit|post|publish|reply|pay|buy|purchase|order|checkout|check out|confirm|delete|remove|cancel subscription|transfer|subscribe|sign ?up|register|book|reserve|donate|log ?in|sign ?in|accept|agree|authori[sz]e|allow|install|upload|share)\b/i;
 const RISKY_FORM_PATH = /login|signin|sign-in|auth|checkout|payment|pay|billing|wallet|account/i;
@@ -34,10 +60,18 @@ export function hostMatches(host: string, patterns: readonly string[]): boolean 
 }
 
 export function isCredentialField(f: ElementFacts): boolean {
-  if (f.type === "password" || f.type === "file") return true;
-  const ac = f.autocomplete.toLowerCase();
-  if (CREDENTIAL_AUTOCOMPLETE.some((t) => ac.includes(t))) return true;
-  return CREDENTIAL_NAME.test(f.nameAttr) || CREDENTIAL_NAME.test(f.idAttr);
+  return credentialFieldTest(f);
+}
+
+/** Rule 4: a reason when activating this element (click, or Enter on it) would send, pay, log in or delete. */
+function riskyTarget(f: ElementFacts, settings: BrowserSettings): string | undefined {
+  if (f.isSubmit) return "this submits a form";
+  const extra = settings.extraRiskyWords.map((w) => w.trim()).filter((w) => w !== "");
+  const extraRe = extra.length > 0 ? new RegExp(`\\b(${extra.map(escapeRe).join("|")})\\b`, "i") : undefined;
+  for (const text of [f.name, f.href]) {
+    if (RISKY_WORDS.test(text) || extraRe?.test(text) === true) return "the label or link looks like a send, pay, login or delete action";
+  }
+  return undefined;
 }
 
 function urlParts(pageUrl: string): { host: string; path: string } {
@@ -77,7 +111,7 @@ function refsOf(action: BrowserAction): string[] {
 
 /**
  * `facts` is one entry per ref of the action, in order (`fill`: one per field). An entry is `undefined` when the ref is not in
- * the last snapshot. For `press` without a ref, the driver passes the facts of the last element it touched, if any.
+ * the last snapshot. For `press` without a ref, the driver passes the facts of the element that really has focus, if any.
  */
 export function classifyAction(
   action: BrowserAction,
@@ -104,19 +138,11 @@ export function classifyAction(
   if (!READ_ONLY_OPS.has(action.op) && host !== "" && hostMatches(host, settings.askDomains)) {
     return { verdict: "ask", reason: `the owner listed ${host} as always-ask` };
   }
-  // 4 clicks that send something
-  if (action.op === "click") {
+  // 4 clicks (and Enter on the target) that send something
+  if (action.op === "click" || (action.op === "press" && action.key === "Enter")) {
     const f = known[0];
-    if (f !== undefined) {
-      if (f.isSubmit) return { verdict: "ask", reason: "this submits a form" };
-      const extra = settings.extraRiskyWords.map((w) => w.trim()).filter((w) => w !== "");
-      const extraRe = extra.length > 0 ? new RegExp(`\\b(${extra.map(escapeRe).join("|")})\\b`, "i") : undefined;
-      for (const text of [f.name, f.href]) {
-        if (RISKY_WORDS.test(text) || extraRe?.test(text) === true) {
-          return { verdict: "ask", reason: "the label or link looks like a send, pay, login or delete action" };
-        }
-      }
-    }
+    const why = f !== undefined ? riskyTarget(f, settings) : undefined;
+    if (why !== undefined) return { verdict: "ask", reason: why };
   }
   // 5 Enter in a form, fill of a risky form
   if (action.op === "press" && action.key === "Enter") {

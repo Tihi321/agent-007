@@ -20,7 +20,7 @@ export function browserForm(): FormDescriptor {
     schema: { type: "object", properties, additionalProperties: false },
     group: "Jobs",
     description: "Lets the job runner drive an isolated Chromium for browser jobs. Credential fields are never typed by the agent; risky steps ask you in Telegram first. Nothing else can set the acknowledgment: not the model, not a tool, not a Telegram button.",
-    warnings: ["Log in with: node dist\src\jobrunner\main.js browser-login (desktop: tray > Browser login...)."],
+    warnings: ["Log in with: node dist\\src\\jobrunner\\main.js browser-login (desktop: tray > Browser login...)."],
     ack: { text: BROWSER_ACK_TEXT },
   };
 }
