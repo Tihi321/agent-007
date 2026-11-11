@@ -39,7 +39,7 @@ const PHASE3_SECURITY_KEYS = new Set(["schemaVersion", "presets", "budgets", "pr
  * Phase 4 (S20) keys of `security.json`. They are NOT in `KEY_TABLE`: a legacy `config.json` that carries one is refused as
  * unclassified (they exist only in `security.json`), and `mergeConfig` drops them, so the Phase 1/2 `Config` is unchanged.
  */
-export const PHASE4_SECURITY_KEYS: ReadonlySet<string> = new Set(["bots", "termsAccepted", "botBus", "botRoom", "gate"]);
+export const PHASE4_SECURITY_KEYS: ReadonlySet<string> = new Set(["bots", "termsAccepted", "botBus", "botRoom", "gate", "browser"]);
 
 export const DEFAULT_PROPOSALS = { timeoutSec: 600, maxPending: 1, perHour: 5, autoApplyCosmetic: false } as const;
 export const DEFAULT_BUDGETS = { maxJobsPerDay: 20 } as const;

@@ -12,6 +12,7 @@ import type { Schema } from "../../../settings/jsonschema.js";
 import { JOBRUNNER_LIMITS_SCHEMA } from "./jobrunnerLimits.js";
 import { claudeFormTemplates } from "../../../models/templates.js";
 import { phase4Forms } from "./phase4.js";
+import { browserForm } from "./browser.js";
 
 export interface FormDescriptor {
   id: string;
@@ -93,6 +94,7 @@ export function shippedForms(): FormRegistry {
     warnings: ["Restart the job runner (log off and on, or restart its scheduled task) after saving."],
   });
   r.register(securityForm("proposals", "Model proposals", ["proposals"], { group: "Personas and proposals", description: "How the model may propose preference changes, and whether tone and verbosity may change without a card." }));
+  r.register(browserForm()); // REQ-0014: the browser engine acknowledgment and domain lists
   for (const d of phase4Forms()) r.register(d); // Phase 4 (S22.4): bots, terms, bot bus, bot room, gate
   return r;
 }
