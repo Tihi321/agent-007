@@ -35,18 +35,9 @@ export interface BrowserDriverDeps {
   now?: () => number;
 }
 
-/** Optional `engines.browser` keys that T4 adds to `jobrunner.json`; defaults sit under `<dataDir>\browser\`. */
-interface BrowserEngineConfig {
-  headless?: boolean;
-  profileDir?: string;
-  artifactsDir?: string;
-  browsersDir?: string;
-  idleMin?: number;
-}
-
 /** Builds the browser driver. Loads nothing heavy: `playwright-core` is imported at the first launch. */
 export function createDriver(ctx: DriverFactoryContext): BrowserEngineDriver {
-  const cfg = ctx.config.engines.browser as BrowserEngineConfig;
+  const cfg = ctx.config.engines.browser;
   const paths = resolveBrowserPaths(ctx.dataDir, cfg);
   const settings = (): BrowserSettings => readBrowserSettings(ctx.config.paths.settingsDir);
   return new BrowserDriver(

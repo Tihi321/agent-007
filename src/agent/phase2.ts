@@ -144,7 +144,7 @@ export async function createPhase2(deps: Phase2Deps): Promise<Phase2Handle> {
     logger: log,
     // REQ-0014: where the job runner writes browser screenshots (absent = photos are not delivered). T7 adds the artifactsRoot option;
     // spread so this line builds with or without it.
-    ...(config.paths.jobArtifactsDir !== undefined ? ({ artifactsRoot: config.paths.jobArtifactsDir } as Partial<JobUiOptions>) : {}),
+    ...(config.paths.jobArtifactsDir !== undefined ? { artifactsRoot: config.paths.jobArtifactsDir } : {}),
     ...(o.jobUi ?? {}),
   });
 

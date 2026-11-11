@@ -334,14 +334,8 @@ export function runSettingsLink(argv: readonly string[], out: (line: string) => 
  * `drivers/browser/cli.ts`, loaded on demand so the other commands never load Playwright. `argv` is what follows the subcommand.
  */
 export async function runBrowserSubcommand(sub: "browser-install" | "browser-login", argv: readonly string[]): Promise<number> {
-  const url = new URL("./drivers/browser/cli.js", import.meta.url).href;
-  const mod = (await import(url)) as { runBrowserCli?: (sub: "browser-install" | "browser-login", argv: string[]) => Promise<number> };
-  if (typeof mod.runBrowserCli !== "function") {
-    process.stderr.write(`${sub}: the browser command line is not available in this build
-`);
-    return 1;
-  }
-  return mod.runBrowserCli(sub, [...argv]);
+  const { runBrowserCli } = await import("./drivers/browser/cli.js");
+  return runBrowserCli(sub, argv);
 }
 
 export async function runMain(argv: readonly string[] = process.argv.slice(2)): Promise<number> {

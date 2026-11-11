@@ -66,7 +66,7 @@ export async function runBrowserCli(sub: BrowserCliSub, argv: readonly string[],
     out(`${sub}: ${e instanceof Error ? e.message : String(e)}`);
     return EXIT_CONFIG;
   }
-  const paths = resolveBrowserPaths(config.paths.dataDir, config.engines.browser as { profileDir?: string; artifactsDir?: string; browsersDir?: string });
+  const paths = resolveBrowserPaths(config.paths.dataDir, config.engines.browser);
   const installer = deps.installer ?? createChromiumInstaller({ browsersDir: paths.browsersDir, ...(deps.info ? { info: deps.info } : {}) });
   try {
     const info = deps.info ?? readPlaywrightInfo();
