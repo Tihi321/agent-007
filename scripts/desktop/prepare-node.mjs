@@ -23,15 +23,20 @@ const src = realpathSync(process.execPath);
 let sig;
 try {
   const ps = `$s = Get-AuthenticodeSignature -LiteralPath $env:NODE_SRC; "$($s.Status)|$($s.SignerCertificate.Subject)"`;
+  // Drop PSModulePath: when launched from PowerShell 7 it points Windows PowerShell 5.1 at PS7's
+  // Microsoft.PowerShell.Security, which 5.1 cannot load. 5.1 rebuilds its default path without it.
+  const env = { ...process.env, NODE_SRC: src };
+  for (const k of Object.keys(env)) if (k.toLowerCase() === "psmodulepath") delete env[k];
   sig = execFileSync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", ps], {
     encoding: "utf8",
     windowsHide: true,
-    env: { ...process.env, NODE_SRC: src },
+    env,
   }).trim();
 } catch (e) {
   fail(`could not read the signature of ${src}: ${e.message}`);
 }
 const [status, subject = ""] = sig.split("|");
+if (!status) fail(`could not read the signature of ${src}: Get-AuthenticodeSignature returned nothing`);
 if (status !== "Valid" || !/\bCN=OpenJS Foundation\b/.test(subject)) {
   fail(`${src} is not an official signed node.exe (status ${status}, signer "${subject}"); install Node from nodejs.org`);
 }
