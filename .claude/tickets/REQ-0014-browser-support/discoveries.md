@@ -1,0 +1,14 @@
+- 2026-11-11 implementer: header comment says the file imports nothing, but it now imports browserContracts.ts (src/jobs/contracts.ts:1) - suggested: update the comment
+- 2026-11-11 implementer: "T8 resource exhaustion" test is timing-flaky under full-suite load (test/web/redteam.test.ts:397) - suggested: loosen its timing or isolate it
+- 2026-11-11 implementer: cleanup rmSync on shared %TEMP% hit EPERM once under load, claude driver tests flaky (test/jobrunner/claude/helpers.ts:14) - suggested: retry rmSync with maxRetries
+- 2026-11-11 implementer: credential name regex from the plan also matches passenger, bypass, spinner, compass (src/jobrunner/drivers/browser/classify.ts) - suggested: add word boundaries, e.g. \bpass(word|wd)?\b
+- 2026-11-11 implementer: snapshots ignore iframes, so embedded login/payment frames are invisible to the classifier (src/jobrunner/drivers/browser/snapshot.ts) - suggested: note iframes in browser_read and treat them as ask
+- 2026-11-11 implementer: createJobsExtension forwards only an explicit list of deps into createJobTask, so onRunning goes through a JobTracker hook instead (src/jobs/tools.ts:500) - suggested: forward onRunning and drop the tracker hook
+- 2026-11-11 implementer: the form-ack guard is keyed on a hardcoded list of section names (src/jobrunner/settingsUi/routes.ts:246) - suggested: derive locked sections from forms that declare ack
+- 2026-11-11 implementer: params schema has no format keyword, so the plan's format: uri cannot be used (src/jobrunner/templates.ts:55) - suggested: none, plan text corrected in practice (pattern + maxLength 2000)
+- 2026-11-11 implementer: runNode has a fixed 30 s timeout, wrong for long-running subcommands (src/desktop/main.ts:86) - suggested: per-call timeout
+- 2026-11-11 implementer: Git Bash turns cmd /c into C:/ so fnm exec ... cmd /c "yarn" hangs; left idle cmd.exe processes 30968 and 30512 (environment) - suggested: run yarn from PowerShell; end those processes
+- 2026-11-11 director-checker: F8 unreadable-focus exception can be triggered by the page; impact minimal (src/jobrunner/drivers/browser/driver.ts) - suggested: compare the host after approval
+- 2026-11-11 director-checker: names starting with pin, such as pinned or pinterest, are refused by the credential name rule; this fails safe (src/jobrunner/drivers/browser/classify.ts) - suggested: none needed
+- 2026-11-11 director-checker: focus inside a closed shadow root is not treated as multiline (src/jobrunner/drivers/browser/snapshot.ts) - suggested: treat that focus as multiline
+- 2026-11-11 director-checker: redteam T8 is flaky under a full-suite run (test/web/redteam.test.ts:371) - suggested: loosen its timing or isolate it
