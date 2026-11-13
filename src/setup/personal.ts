@@ -40,6 +40,7 @@ export const applyIcacls: IcaclsApply = (args) => {
 export interface PersonalAnswers {
   proxyApiKey?: string;
   acceptClaudeTerms?: boolean;
+  acceptAntigravityTerms?: boolean;
   telegram?: { botToken: string; allowedUserId: number };
 }
 
@@ -174,7 +175,7 @@ export function setupPersonal(o: {
   security["presets"] = [...sp, ...claude];
   (security["model"] as Obj)["defaultPreset"] = (security["presets"] as Obj[])[0]?.["id"] ?? "strata";
   // termsAccepted.claude is the owner's decision (I41): true only when the owner ticked it in the setup window
-  security["termsAccepted"] = { claude: answers.acceptClaudeTerms === true, antigravity: false };
+  security["termsAccepted"] = { claude: answers.acceptClaudeTerms === true, antigravity: answers.acceptAntigravityTerms === true };
 
   const secrets: Obj = { telegramBotToken: answers.telegram?.botToken ?? PLACEHOLDER, strataApiKey: "", proxyApiKey: answers.proxyApiKey ?? PLACEHOLDER };
   if (existsSync(p.secretsPath)) res.kept.push(p.secretsPath);
@@ -224,16 +225,17 @@ export function updatePersonal(root: string, answers: PersonalAnswers, icacls: I
     replaceSecretFile(p.secretsPath, json(s), icacls);
   }
   // the `telegram` block and `termsAccepted` live in settings\security.json (the split puts them there)
-  if (answers.telegram !== undefined || answers.acceptClaudeTerms !== undefined) {
+  if (answers.telegram !== undefined || answers.acceptClaudeTerms !== undefined || answers.acceptAntigravityTerms !== undefined) {
     const sec = read(p.securityPath);
     if (answers.telegram !== undefined) {
       const t = typeof sec["telegram"] === "object" && sec["telegram"] !== null ? (sec["telegram"] as Obj) : {};
       t["allowedUserIds"] = [answers.telegram.allowedUserId];
       sec["telegram"] = t;
     }
-    if (answers.acceptClaudeTerms !== undefined) {
+    if (answers.acceptClaudeTerms !== undefined || answers.acceptAntigravityTerms !== undefined) {
       const terms = typeof sec["termsAccepted"] === "object" && sec["termsAccepted"] !== null ? (sec["termsAccepted"] as Obj) : {};
-      terms["claude"] = answers.acceptClaudeTerms;
+      if (answers.acceptClaudeTerms !== undefined) terms["claude"] = answers.acceptClaudeTerms;
+      if (answers.acceptAntigravityTerms !== undefined) terms["antigravity"] = answers.acceptAntigravityTerms;
       sec["termsAccepted"] = terms;
     }
     replaceFileAtomic(p.securityPath, json(sec));
@@ -256,7 +258,7 @@ export function hasTelegramPlaceholders(root: string): boolean {
 }
 
 /** What the launcher page may show about the stored answers: booleans only, never a value. Read only. */
-export function personalStatus(root: string): { hasProxyKey: boolean; claudeTermsAccepted: boolean } {
+export function personalStatus(root: string): { hasProxyKey: boolean; claudeTermsAccepted: boolean; antigravityTermsAccepted: boolean } {
   const p = personalPaths(root);
   const read = (file: string): Obj => {
     try {
@@ -271,6 +273,7 @@ export function personalStatus(root: string): { hasProxyKey: boolean; claudeTerm
   return {
     hasProxyKey: typeof key === "string" && key !== "" && key !== PLACEHOLDER,
     claudeTermsAccepted: typeof terms === "object" && terms !== null && (terms as Obj)["claude"] === true,
+    antigravityTermsAccepted: typeof terms === "object" && terms !== null && (terms as Obj)["antigravity"] === true,
   };
 }
 

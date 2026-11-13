@@ -97,7 +97,10 @@ function render(s) {
   );
   setText("key-state", s.hasProxyKey ? "a key is stored" : "no key stored");
   // the tick is loaded from the state once; later pushes must not clobber an unsaved tick (it starts unticked)
-  if (!termsLoaded) $("u-terms").checked = s.claudeTerms;
+  if (!termsLoaded) {
+    $("u-terms").checked = s.claudeTerms;
+    $("u-terms-antigravity").checked = s.antigravityTerms;
+  }
   termsLoaded = true;
   setText("root-path", s.root);
   setText("data-note", "The agent is never allowed to write to this folder. The same folder is used by the installer and the portable exe.");
@@ -112,6 +115,7 @@ function readAnswers(prefix) {
   const key = $(`${prefix}proxy-key`).value.trim();
   if (key) out.proxyApiKey = key;
   out.acceptClaudeTerms = $(prefix === "" ? "terms" : "u-terms").checked;
+  out.acceptAntigravityTerms = $(prefix === "" ? "terms-antigravity" : "u-terms-antigravity").checked;
   const token = $(`${prefix}tg-token`).value.trim();
   const user = $(`${prefix}tg-user`).value.trim();
   if (token || user) out.telegram = { botToken: token, allowedUserId: user };

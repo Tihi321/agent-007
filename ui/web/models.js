@@ -241,7 +241,9 @@ export async function renderModels(ctx) {
         const paid = p.privacy === "cloud"
           ? h("label", { class: "check" }, h("input", { type: "checkbox", name: "paid", checked: p.billing === "paid", onchange: async (ev) => {
               const r = await write("/api/admin/models/presets/update", { presetId: p.id, billing: ev.target.checked ? "paid" : "subscription" });
-              note(r.ok, r.ok ? "Billing changed." : r.data.message || "That did not work.");
+              // 401 here is a declined or unavailable confirmation (the server sends no text for it): say so, since the box snaps back on reload
+              note(r.ok, r.ok ? "Billing changed." : r.data.message || (r.status === 401 ? "Not changed: the confirmation (authenticator code) was cancelled or did not work." : "That did not work."));
+              if (!r.ok && out.scrollIntoView) out.scrollIntoView();
               await reload();
             } }), "Paid per use (needs an owner grant with caps before a bot can use it)")
           : null;

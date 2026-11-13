@@ -525,3 +525,24 @@ test("account and admin pages: change-password and reset-password forms send the
   assert.deepEqual(adminCalls.find((c) => c.path === "/api/admin/users/password")?.body, { id: "u1", password: "a brand new password" });
   assert.ok(!/authenticator|totp/i.test(asOwner.textContent), "nothing about the authenticator on the admin page");
 });
+
+test("Models page: a Paid per use tick that needs a confirmation nobody gives says so and is not shown as saved", async () => {
+  (globalThis as any).document = fakeDocument;
+  const { renderModels } = await load("models.js");
+  const paid = { billing: "subscription" };
+  const ctx = {
+    prompt: () => null, // a window with no prompt(), or a cancelled one
+    api: {
+      call: async (path: string, body: any) => {
+        if (path.endsWith("/list")) return { ok: true, status: 200, data: { sources: [{ id: "acp-proxy", kind: "acp-proxy", label: "Proxy", baseUrl: "http://127.0.0.1:1", privacy: "cloud", setUp: true }], presets: [{ id: "ag-g", sourceId: "acp-proxy", modelId: "antigravity/g", origin: "web", kind: "acp", privacy: "cloud", billing: paid.billing, label: "G", contextWindow: 8192, maxTokens: 1024, usedBy: 0 }], banners: [] } };
+        return { ok: false, status: 401, data: { error: "step_up_required" } };
+      },
+    },
+  };
+  const page = await renderModels(ctx);
+  const box = () => byName(page, "paid");
+  box().checked = true;
+  await box().fire("change", { target: box() });
+  assert.equal(box().checked, false, "the box shows what is stored");
+  assert.match(page.textContent, /Not changed: the confirmation/);
+});

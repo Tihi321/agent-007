@@ -108,7 +108,7 @@ const loginItemPath = (): string => process.env["PORTABLE_EXECUTABLE_FILE"] ?? p
 function buildState(): Record<string, unknown> {
   const done = setupDone(root);
   const resolved = resolveRoot();
-  const status = done ? personalStatus(root) : { hasProxyKey: false, claudeTermsAccepted: false };
+  const status = done ? personalStatus(root) : { hasProxyKey: false, claudeTermsAccepted: false, antigravityTermsAccepted: false };
   return {
     version: app.getVersion(),
     isPackaged: app.isPackaged,
@@ -124,6 +124,7 @@ function buildState(): Record<string, unknown> {
     loginItemPath: loginItemPath(),
     hasProxyKey: status.hasProxyKey,
     claudeTerms: status.claudeTermsAccepted,
+    antigravityTerms: status.antigravityTermsAccepted,
     telegramReady: done ? !hasTelegramPlaceholders(root) : false,
     claimPending: Boolean(lastClaim && lastClaim.expiresAt > Date.now()),
     jobrunnerPorts: [JOBRUNNER_IPC_PORT, JOBRUNNER_UI_PORT],
@@ -480,6 +481,7 @@ function parseAnswers(raw: unknown): PersonalAnswers {
   const r = raw as Record<string, unknown>;
   if (typeof r["proxyApiKey"] === "string" && r["proxyApiKey"].trim() !== "") out.proxyApiKey = r["proxyApiKey"].trim();
   if (typeof r["acceptClaudeTerms"] === "boolean") out.acceptClaudeTerms = r["acceptClaudeTerms"];
+  if (typeof r["acceptAntigravityTerms"] === "boolean") out.acceptAntigravityTerms = r["acceptAntigravityTerms"];
   const t = r["telegram"];
   if (typeof t === "object" && t !== null) {
     const tt = t as Record<string, unknown>;

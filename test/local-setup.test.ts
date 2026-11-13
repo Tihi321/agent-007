@@ -49,13 +49,15 @@ const TOKEN = "123456789:AAEhBOweik6ad9r_QXMENQjcrpOzxcLIkgY";
 test("setupPersonal puts the answers only into files it creates, sets the secrets ACL before the content, and never overwrites", () => {
   const dir = mkdtempSync(join(tmpdir(), "agent007-personal-"));
   const acl = fakeIcacls();
-  const answers = { proxyApiKey: "proxy-key-abc", acceptClaudeTerms: true, telegram: { botToken: TOKEN, allowedUserId: 4242 } };
+  const answers = { proxyApiKey: "proxy-key-abc", acceptClaudeTerms: true, acceptAntigravityTerms: true, telegram: { botToken: TOKEN, allowedUserId: 4242 } };
   const r = setupPersonal({ root: dir, resourcesDir: process.cwd(), home: dir, answers, icacls: acl.run });
   const secrets = JSON.parse(readFileSync(r.secretsPath, "utf8")) as Record<string, string>;
   assert.equal(secrets["proxyApiKey"], "proxy-key-abc");
   assert.equal(secrets["telegramBotToken"], TOKEN);
   assert.deepEqual((JSON.parse(readFileSync(join(dir, "settings", "security.json"), "utf8")) as { telegram: { allowedUserIds: number[] } }).telegram.allowedUserIds, [4242]);
-  assert.equal((JSON.parse(readFileSync(join(dir, "settings", "security.json"), "utf8")) as { termsAccepted: { claude: boolean } }).termsAccepted.claude, true);
+  const termsAccepted = (JSON.parse(readFileSync(join(dir, "settings", "security.json"), "utf8")) as { termsAccepted: { claude: boolean; antigravity: boolean } }).termsAccepted;
+  assert.equal(termsAccepted.claude, true);
+  assert.equal(termsAccepted.antigravity, true);
   assert.equal(hasTelegramPlaceholders(dir), false);
   const forSecrets = acl.calls.filter((c) => c.path === r.secretsPath);
   assert.equal(forSecrets.length, 1);
