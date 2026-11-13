@@ -9,7 +9,7 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import type { WebAudit } from "./audit.js";
-import { MIN_PASSWORD_LENGTH, SecretBox, hashPassword, hashSecret, randomToken, safeEqual, verifyPassword } from "./crypto.js";
+import { SecretBox, hashPassword, hashSecret, passwordProblem, randomToken, safeEqual, verifyPassword } from "./crypto.js";
 import { newUserId } from "./ids.js";
 import type { LockoutTracker } from "./ratelimit.js";
 import { LOGIN_PATTERN } from "./schemas.js";
@@ -34,6 +34,9 @@ export class AuthError extends Error {
     if (retryAfterSec !== undefined) this.retryAfterSec = retryAfterSec;
   }
 }
+
+export type LocalResetChannel = "cli" | "desktop";
+export type ResetChannel = LocalResetChannel | "admin" | "account";
 
 export const GENERIC_FAIL = "Sign-in failed.";
 export const OWNER_CODE_TTL_MS = 10 * 60_000;
@@ -218,8 +221,9 @@ export class AuthService {
         throw e;
       }
     } else {
-      const password = typeof req.password === "string" ? req.password : "";
-      if (password.length < MIN_PASSWORD_LENGTH || password.length > 200) throw new AuthError("bad_request", `The password needs at least ${MIN_PASSWORD_LENGTH} characters.`);
+      const problem = passwordProblem(req.password);
+      if (problem) throw new AuthError("bad_request", problem);
+      const password = req.password as string;
       const step = verifyTotp(pending.totpSecret, typeof req.totpCode === "string" ? req.totpCode : "", this.#now(), 0);
       if (step === undefined) throw new AuthError("invalid", "The authenticator code is wrong. Check the clock on your phone.");
       creds.password = { hash: await hashPassword(password), totpSealed: this.#d.box.seal(pending.totpSecret, pending.userId), lastTotpStep: step };
@@ -447,7 +451,8 @@ export class AuthService {
 
   /** Enrol password + TOTP for an invited user (S32 accept flow). Returns the TOTP secret/URI to show once and a finisher. */
   async enrolPassword(userId: string, password: string, totpSecret: string, totpCode: string): Promise<void> {
-    if (password.length < MIN_PASSWORD_LENGTH || password.length > 200) throw new AuthError("bad_request", `The password needs at least ${MIN_PASSWORD_LENGTH} characters.`);
+    const problem = passwordProblem(password);
+    if (problem) throw new AuthError("bad_request", problem);
     const step = verifyTotp(totpSecret, totpCode, this.#now(), 0);
     if (step === undefined) throw new AuthError("invalid", "The authenticator code is wrong. Check the clock on your phone.");
     const hash = await hashPassword(password);
@@ -456,6 +461,114 @@ export class AuthService {
       const c = (d.users[userId] ??= { passkeys: [], recovery: [] });
       c.password = { hash, totpSealed: sealed, lastTotpStep: step };
     });
+  }
+
+  // ---- password and authenticator reset -----------------------------------------------------------------------------------
+
+  /** The user id for a login (case-insensitive), any status. undefined when none. */
+  userIdForLogin(login: unknown): string | undefined {
+    if (typeof login !== "string") return undefined;
+    const l = login.trim().toLowerCase();
+    if (!l) return undefined;
+    return Object.entries(this.#d.users.read().users).find(([, u]) => u.login.toLowerCase() === l)?.[0];
+  }
+
+  /** Forgets the lockout of the target's login and tailnet client keys (and the local client for the owner). */
+  #clearLockout(userId: string): void {
+    const u = this.#d.users.read().users[userId];
+    if (!u) return;
+    const l = u.login.toLowerCase();
+    const keys = [`login:${l}`, `client:ts:${l}`];
+    if (u.role === "owner") keys.push("client:local");
+    for (const k of keys) this.#d.lockout.clear(k);
+  }
+
+  #resetAudit(targetId: string, change: "password_reset" | "totp_reset", channel: ResetChannel, ended: number, actorId?: string): void {
+    this.#d.audit.write({ kind: "user_change", ...(actorId !== undefined ? { user: actorId } : {}), detail: { target: targetId, change, channel, sessions: ended } });
+  }
+
+  /**
+   * THE password reset used by all four entry points. No authority checks here: each caller has done its own.
+   * Changes only the password hash; the authenticator, passkeys and recovery codes stay. Ends every session of the target.
+   */
+  async resetPassword(req: { targetId: string; newPassword: unknown; channel: ResetChannel; actorId?: string }): Promise<{ ended: number }> {
+    const problem = passwordProblem(req.newPassword);
+    if (problem) throw new AuthError("bad_request", problem);
+    if (!this.#d.users.read().users[req.targetId]) throw new AuthError("bad_request", "No such user.");
+    const noPassword = "This account signs in with a passkey only; it has no password to reset.";
+    if (!this.#d.credentials.read().users[req.targetId]?.password) throw new AuthError("bad_request", noPassword);
+    const hash = await hashPassword(req.newPassword as string);
+    this.#d.credentials.update((d) => {
+      const p = d.users[req.targetId]?.password;
+      if (!p) throw new AuthError("bad_request", noPassword);
+      p.hash = hash;
+    });
+    const ended = this.#d.sessions.revokeUser(req.targetId);
+    this.#clearLockout(req.targetId);
+    this.#resetAudit(req.targetId, "password_reset", req.channel, ended, req.actorId);
+    return { ended };
+  }
+
+  /** Account page: the session user changes their own password with the current password and an authenticator code. */
+  async changeOwnPassword(session: AuthedSession, req: { currentPassword?: unknown; totpCode?: unknown; newPassword?: unknown }, ctx: AuthContext): Promise<{ ended: number }> {
+    const problem = passwordProblem(req.newPassword);
+    if (problem) throw new AuthError("bad_request", problem);
+    const cred = this.#d.credentials.read().users[session.userId]?.password;
+    if (!cred) throw new AuthError("bad_request", "This account signs in with a passkey only; it has no password.");
+    const keys = this.#lockKeys(session.login, ctx);
+    this.#assertNotLocked(keys);
+    const current = typeof req.currentPassword === "string" && req.currentPassword.length <= 200 ? req.currentPassword : "";
+    const okPw = await verifyPassword(current, cred.hash);
+    let step: number | undefined;
+    try {
+      step = verifyTotp(this.#d.box.open(cred.totpSealed, session.userId), typeof req.totpCode === "string" ? req.totpCode : "", this.#now(), cred.lastTotpStep);
+    } catch {
+      step = undefined;
+    }
+    if (!okPw || step === undefined) {
+      for (const k of keys) {
+        const started = this.#d.lockout.fail(k);
+        if (started > 0) this.#d.audit.write({ kind: "lockout", detail: { key: k.startsWith("login:") ? "login" : "client", minutes: Math.round(started / 60_000) } });
+      }
+      this.#d.audit.write({ kind: "login_fail", user: session.userId, detail: { step: "password_change" } });
+      throw new AuthError("invalid", "The current password or the authenticator code is wrong.");
+    }
+    const used = step;
+    this.#d.credentials.update((d) => {
+      const p = d.users[session.userId]?.password;
+      if (p) p.lastTotpStep = used;
+    });
+    return this.resetPassword({ targetId: session.userId, newPassword: req.newPassword, channel: "account", actorId: session.userId });
+  }
+
+  /** Local only. Returns a NEW authenticator secret and its URI. Writes nothing: the old secret stays valid until `finishTotpReset`. */
+  beginTotpReset(targetId: string): { secret: string; uri: string } {
+    const user = this.#d.users.read().users[targetId];
+    if (!user) throw new AuthError("bad_request", "No such user.");
+    if (!this.#d.credentials.read().users[targetId]?.password) throw new AuthError("bad_request", "This account signs in with a passkey only; it has no authenticator to reset.");
+    const secret = newTotpSecret();
+    return { secret, uri: otpauthUri(secret, user.login) };
+  }
+
+  /** Local only. Replaces the authenticator secret once a code from the new one is proven. Everything else stays. */
+  finishTotpReset(req: { targetId: string; secret: string; code: string; channel: LocalResetChannel }): { ended: number } {
+    const noTotp = "This account signs in with a passkey only; it has no authenticator to reset.";
+    if (!this.#d.users.read().users[req.targetId]) throw new AuthError("bad_request", "No such user.");
+    if (!this.#d.credentials.read().users[req.targetId]?.password) throw new AuthError("bad_request", noTotp);
+    if (typeof req.secret !== "string" || !/^[A-Z2-7]{32}$/.test(req.secret)) throw new AuthError("bad_request", "That key is not valid.");
+    const step = verifyTotp(req.secret, typeof req.code === "string" ? req.code : "", this.#now(), 0);
+    if (step === undefined) throw new AuthError("invalid", "The authenticator code is wrong. Check the clock on your phone.");
+    const sealed = this.#d.box.seal(req.secret, req.targetId);
+    this.#d.credentials.update((d) => {
+      const p = d.users[req.targetId]?.password;
+      if (!p) throw new AuthError("bad_request", noTotp);
+      p.totpSealed = sealed;
+      p.lastTotpStep = step;
+    });
+    const ended = this.#d.sessions.revokeUser(req.targetId);
+    this.#clearLockout(req.targetId);
+    this.#resetAudit(req.targetId, "totp_reset", req.channel, ended);
+    return { ended };
   }
 
   currentStep(): number {

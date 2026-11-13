@@ -177,6 +177,46 @@
         </div>
       </section>
 
+      <section class="group" aria-labelledby="g-accounts">
+        <div class="group-head">
+          <h2 id="g-accounts">Accounts</h2>
+          <p class="group-desc">Reset the web sign-in of the owner or a user. Works on this PC only. Every web session of that person ends.</p>
+        </div>
+        <div class="group-body">
+          <div class="field">
+            <label for="acct-login">Login of the person</label>
+            <input id="acct-login" type="text" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="acct-pw">New password</label>
+            <input id="acct-pw" type="password" autocomplete="new-password" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="acct-pw2">Repeat the new password</label>
+            <input id="acct-pw2" type="password" autocomplete="new-password" spellcheck="false">
+            <p class="help">At least 12 characters. The authenticator and passkeys stay.</p>
+          </div>
+          <div class="actions">
+            <button id="acct-reset-pw" type="button" class="btn primary">Reset password</button>
+            <button id="acct-reset-totp" type="button" class="btn">Reset authenticator</button>
+          </div>
+          <div id="acct-totp-box" hidden>
+            <p class="help">Add this key to the authenticator app, then enter a 6-digit code from the new entry. The old authenticator keeps working until you confirm.</p>
+            <p class="path"><code id="acct-totp-key"></code></p>
+            <p class="path"><code id="acct-totp-uri"></code></p>
+            <div class="field">
+              <label for="acct-totp-code">6-digit code from the new entry</label>
+              <input id="acct-totp-code" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6" spellcheck="false">
+            </div>
+            <div class="actions">
+              <button id="acct-totp-confirm" type="button" class="btn primary">Confirm</button>
+              <button id="acct-totp-cancel" type="button" class="btn">Cancel</button>
+            </div>
+          </div>
+          <p id="acct-msg" role="status"></p>
+        </div>
+      </section>
+
       <section class="group" aria-labelledby="g-folders">
         <div class="group-head">
           <h2 id="g-folders">Folders</h2>

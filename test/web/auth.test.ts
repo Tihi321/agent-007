@@ -2,8 +2,10 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
-import { AuthError, GENERIC_FAIL } from "../../src/web/auth.js";
+import { AuthError, GENERIC_FAIL, ownerCaps } from "../../src/web/auth.js";
+import type { WebUser } from "../../src/web/schemas.js";
 import type { AuthContext } from "../../src/web/auth.js";
 import { runWebCli } from "../../src/web/cli.js";
 import { memoryWebAudit } from "../../src/web/audit.js";
@@ -234,6 +236,100 @@ test("password login: the same generic failure for every wrong input, TOTP repla
   assert.equal((await l.stack.auth.loginPassword({ login: ow.login, password: ow.password, totpCode: totpAt(ow.secret, totpStep(l.clock.t)) }, LOCAL)).role, "owner", "free again after 15 minutes");
 });
 
+const OTHER_ID = "a".repeat(32);
+const PK_ID = "b".repeat(32);
+/** A second user with a password and an authenticator, plus a passkey-only user, for the reset tests. */
+function addOtherUsers(s: ReturnType<typeof mkStack>) {
+  const t = s.clock.t;
+  const mk = (login: string): WebUser => ({ login, displayName: login, role: "user", status: "active", caps: ownerCaps(), createdAt: t, invitedBy: "self" });
+  s.stack.users.update((d) => {
+    d.users[OTHER_ID] = mk("other@example.com");
+    d.users[PK_ID] = mk("pk@example.com");
+  });
+  const pk = { id: "cred-1", publicKey: "key", signCount: 1, createdAt: t, label: "phone" };
+  s.stack.credentials.update((d) => {
+    d.users[OTHER_ID] = { passkeys: [], recovery: ["h1".repeat(10)], password: { hash: "x".repeat(20), totpSealed: "y".repeat(20), lastTotpStep: 0 } };
+    d.users[PK_ID] = { passkeys: [pk], recovery: [] };
+  });
+}
+
+test("password reset: only the hash changes, sessions end, lockout clears, audit holds no secret", async () => {
+  const s = mkStack();
+  const o = await claimOwner(s);
+  addOtherUsers(s);
+  s.stack.credentials.update((d) => {
+    d.users[o.userId]!.passkeys.push({ id: "cred-o", publicKey: "k", signCount: 0, createdAt: s.clock.t, label: "own" });
+  });
+  const before = structuredClone(s.stack.credentials.read().users[o.userId]!);
+  const other = s.stack.sessions.create(OTHER_ID, { ip: "ip-x", ua: "t" });
+  for (let i = 0; i < 5; i++) await assert.rejects(() => s.stack.auth.loginPassword({ login: o.login, password: "x".repeat(14), totpCode: "000000" }, { ...LOCAL, ip: "c" + i }));
+  assert.ok(s.stack.lockout.lockedFor(`login:${o.login}`) > 0);
+  assert.equal(s.stack.auth.userIdForLogin("OWNER@example.com"), o.userId);
+
+  const fresh = "a brand new password";
+  assert.deepEqual(await s.stack.auth.resetPassword({ targetId: o.userId, newPassword: fresh, channel: "cli" }), { ended: 1 });
+  const after = s.stack.credentials.read().users[o.userId]!;
+  assert.notEqual(after.password!.hash, before.password!.hash);
+  assert.deepEqual({ ...after, password: { ...after.password!, hash: "" } }, { ...before, password: { ...before.password!, hash: "" } }, "everything but the hash is unchanged");
+  assert.equal(s.stack.sessions.resolve(o.sessionId, { ip: "local", ua: "test" }), undefined, "the target's session ended");
+  assert.ok(s.stack.sessions.resolve(other.id, { ip: "ip-x", ua: "t" }), "another person's session lives");
+  assert.equal(s.stack.lockout.lockedFor(`login:${o.login}`), 0);
+  s.clock.t += 31_000;
+  await assert.rejects(() => s.stack.auth.loginPassword({ login: o.login, password: o.password, totpCode: totpAt(o.secret, totpStep(s.clock.t)) }, LOCAL), (e: AuthError) => e.message === GENERIC_FAIL);
+  assert.equal((await s.stack.auth.loginPassword({ login: o.login, password: fresh, totpCode: totpAt(o.secret, totpStep(s.clock.t)) }, LOCAL)).role, "owner", "the new password and the same authenticator sign in");
+  const ev = s.audit.events.filter((e) => e.kind === "user_change" && e.detail?.["change"] === "password_reset");
+  assert.equal(ev.length, 1);
+  assert.deepEqual(ev[0]!.detail, { target: o.userId, change: "password_reset", channel: "cli", sessions: 1 });
+  const json = JSON.stringify(s.audit.events);
+  assert.ok(!json.includes(fresh) && !json.includes(after.password!.hash));
+
+  const snap = JSON.stringify(s.stack.credentials.read());
+  await assert.rejects(() => s.stack.auth.resetPassword({ targetId: o.userId, newPassword: "short-11-ch", channel: "cli" }), (e: AuthError) => e.code === "bad_request");
+  await assert.rejects(() => s.stack.auth.resetPassword({ targetId: PK_ID, newPassword: fresh, channel: "cli" }), (e: AuthError) => e.code === "bad_request" && /passkey only/.test(e.message));
+  assert.equal(JSON.stringify(s.stack.credentials.read()), snap, "refusals change nothing");
+});
+
+test("authenticator reset: old secret works until a code from the new one confirms; password and passkeys stay", async () => {
+  const s = mkStack();
+  const o = await claimOwner(s);
+  addOtherUsers(s);
+  s.stack.credentials.update((d) => {
+    d.users[o.userId]!.passkeys.push({ id: "cred-o", publicKey: "k", signCount: 0, createdAt: s.clock.t, label: "own" });
+  });
+  const before = structuredClone(s.stack.credentials.read().users[o.userId]!);
+  const begun = s.stack.auth.beginTotpReset(o.userId);
+  assert.match(begun.secret, /^[A-Z2-7]{32}$/);
+  assert.ok(begun.uri.startsWith("otpauth://"));
+  assert.deepEqual(s.stack.credentials.read().users[o.userId], before, "begin writes nothing");
+  assert.throws(() => s.stack.auth.beginTotpReset(PK_ID), (e: AuthError) => e.code === "bad_request" && /no authenticator/.test(e.message));
+
+  s.clock.t += 31_000;
+  const sess = (await s.stack.auth.loginPassword({ login: o.login, password: o.password, totpCode: totpAt(o.secret, totpStep(s.clock.t)) }, LOCAL)).sessionId;
+  assert.ok(sess, "the old secret still signs in after begin");
+  s.clock.t += 31_000;
+  assert.throws(() => s.stack.auth.finishTotpReset({ targetId: o.userId, secret: begun.secret, code: "000000", channel: "cli" }), (e: AuthError) => e.code === "invalid");
+  assert.ok(s.stack.sessions.resolve(sess, { ip: "local", ua: "test" }), "a wrong code changes nothing");
+  assert.equal(s.stack.credentials.read().users[o.userId]!.password!.totpSealed, before.password!.totpSealed);
+  for (let i = 0; i < 5; i++) await assert.rejects(() => s.stack.auth.loginPassword({ login: o.login, password: "x".repeat(14), totpCode: "000000" }, { ...LOCAL, ip: "c" + i }));
+  assert.ok(s.stack.lockout.lockedFor(`login:${o.login}`) > 0);
+
+  assert.deepEqual(s.stack.auth.finishTotpReset({ targetId: o.userId, secret: begun.secret, code: totpAt(begun.secret, totpStep(s.clock.t)), channel: "desktop" }), { ended: 2 });
+  assert.equal(s.stack.sessions.resolve(sess, { ip: "local", ua: "test" }), undefined, "sessions ended");
+  assert.equal(s.stack.lockout.lockedFor(`login:${o.login}`), 0);
+  const after = s.stack.credentials.read().users[o.userId]!;
+  assert.equal(after.password!.hash, before.password!.hash, "password unchanged");
+  assert.deepEqual(after.passkeys, before.passkeys);
+  assert.deepEqual(after.recovery, before.recovery);
+  s.clock.t += 31_000;
+  await assert.rejects(() => s.stack.auth.loginPassword({ login: o.login, password: o.password, totpCode: totpAt(o.secret, totpStep(s.clock.t)) }, LOCAL), (e: AuthError) => e.message === GENERIC_FAIL);
+  s.clock.t += 31_000;
+  assert.equal((await s.stack.auth.loginPassword({ login: o.login, password: o.password, totpCode: totpAt(begun.secret, totpStep(s.clock.t)) }, LOCAL)).role, "owner", "the new secret signs in");
+  const ev = s.audit.events.filter((e) => e.kind === "user_change" && e.detail?.["change"] === "totp_reset");
+  assert.equal(ev.length, 1);
+  assert.deepEqual(ev[0]!.detail, { target: o.userId, change: "totp_reset", channel: "desktop", sessions: 2 });
+  assert.ok(!JSON.stringify(s.audit.events).includes(begun.secret));
+});
+
 test("recovery codes work once in place of TOTP; a disabled user and a local identity for a non-owner are refused", async () => {
   const s = mkStack();
   const o = await claimOwner(s);
@@ -352,23 +448,95 @@ test("HTTP: claim and login over the gateway set a __Host- cookie with Secure, H
   }
 });
 
-test("CLI: owner-code prints a code once, refuses a second owner without --reset; lockdown ends every session", async () => {
+test("CLI: owner-code, lockdown, reset-password and reset-totp; a reset clears a lockout a running gateway holds", async () => {
   const s = mkStack({ t: Date.now() });
   const lines: string[] = [];
-  assert.equal(runWebCli(["owner-code", "--data-dir", s.dir], { out: (l) => lines.push(l) }), 0);
+  assert.equal(await runWebCli(["owner-code", "--data-dir", s.dir], { out: (l) => lines.push(l) }), 0);
   assert.match(lines[1] ?? "", /^[A-Za-z0-9_-]{20,}$/);
   assert.match(lines.join("\n"), /localhost:47009\/claim/);
   const begin = s.stack.auth.claimBegin(lines[1], LOCAL);
   await s.stack.auth.claimFinish({ claimId: begin.claimId, login: "owner@example.com", displayName: "O", password: "a long enough password", totpCode: totpAt(begin.totp.secret, totpStep(s.clock.t)) }, LOCAL);
   const l2: string[] = [];
-  assert.equal(runWebCli(["owner-code", "--data-dir", s.dir], { out: (l) => l2.push(l) }), 1);
+  assert.equal(await runWebCli(["owner-code", "--data-dir", s.dir], { out: (l) => l2.push(l) }), 1);
   assert.match(l2.join(), /already exists/);
-  assert.equal(runWebCli(["owner-code", "--data-dir", s.dir, "--reset"], { out: () => undefined }), 0);
+  assert.equal(await runWebCli(["owner-code", "--data-dir", s.dir, "--reset"], { out: () => undefined }), 0);
   const l3: string[] = [];
-  assert.equal(runWebCli(["lockdown", "--data-dir", s.dir], { out: (l) => l3.push(l) }), 0);
+  assert.equal(await runWebCli(["lockdown", "--data-dir", s.dir], { out: (l) => l3.push(l) }), 0);
   assert.match(l3.join(), /ended 1 web session/);
-  assert.equal(runWebCli(["owner-code"], { out: () => undefined }), 2);
-  assert.equal(runWebCli(["owner-code", "--data-dir", s.dir, "--bogus"], { out: () => undefined }), 2);
+  assert.equal(await runWebCli(["owner-code"], { out: () => undefined }), 2);
+  assert.equal(await runWebCli(["owner-code", "--data-dir", s.dir, "--bogus"], { out: () => undefined }), 2);
+
+  // reset-password: interactive (hidden asks), a mismatch changes nothing, --password is refused
+  const login = "owner@example.com";
+  const answers = (...a: string[]) => ({ out: (l: string) => lines2.push(l), ask: async () => a.shift() ?? "" });
+  let lines2: string[] = [];
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login], answers("first new password", "something else")), 1);
+  assert.match(lines2.join(), /differ/);
+  lines2 = [];
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--password", "x"], answers()), 2);
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--password=x"], answers()), 2);
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login], { out: () => undefined }), 2, "not interactive");
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir], answers()), 2, "login missing");
+  s.clock.t += 60_000;
+  const code = (secret: string) => totpAt(secret, totpStep(s.clock.t));
+  const ctx = { ...LOCAL, ip: "cli-test" };
+  await assert.rejects(() => s.stack.auth.loginPassword({ login, password: "first new password", totpCode: code(begin.totp.secret) }, ctx), AuthError);
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login], answers("first new password", "first new password")), 0);
+  assert.match(lines2.join(), /Password reset for owner@example\.com\. Ended \d+ web session/);
+  assert.equal((await s.stack.auth.loginPassword({ login, password: "first new password", totpCode: code(begin.totp.secret) }, ctx)).role, "owner", "new password, same authenticator");
+
+  // a running gateway (its own tracker on the same file) holds a lockout; the CLI reset in another process clears it
+  const { LockoutTracker } = await import("../../src/web/ratelimit.js");
+  const lockFile = join(s.dir, "web", "lockout.json");
+  const gateway = new LockoutTracker({ file: lockFile });
+  for (let i = 0; i < 5; i++) gateway.fail(`login:${login}`);
+  assert.ok(gateway.lockedFor(`login:${login}`) > 0);
+  const one: string[] = [];
+  const machine = { out: (l: string) => one.push(l), readStdin: async () => JSON.stringify({ password: "machine made password" }) };
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--stdin"], machine), 0);
+  assert.deepEqual(one.map((l) => (JSON.parse(l) as { ok: boolean }).ok), [true]);
+  assert.equal(gateway.lockedFor(`login:${login}`), 0, "the running gateway sees the clear");
+  gateway.fail(`login:${login}`);
+  assert.equal(gateway.lockedFor(`login:${login}`), 0, "its next write does not resurrect the lock");
+  const short: string[] = [];
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--stdin"], { out: (l) => short.push(l), readStdin: async () => '{"password":"short"}' }), 1);
+  assert.equal((JSON.parse(short[0] as string) as { ok: boolean }).ok, false);
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--stdin"], { out: () => undefined, readStdin: async () => "not json" }), 2);
+  const nobody: string[] = [];
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", "nobody@example.com", "--stdin"], { out: (l) => nobody.push(l), readStdin: async () => "{}" }), 1);
+  assert.equal((JSON.parse(nobody[0] as string) as { message: string }).message, "No user with that login.");
+
+  // reset-totp: machine mode begin/finish, then interactive with one wrong code
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--finish"], machine), 2);
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--begin", "--finish", "--stdin"], machine), 2);
+  const b: string[] = [];
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--begin"], { out: (l) => b.push(l) }), 0);
+  const fresh = JSON.parse(b[0] as string) as { ok: boolean; secret: string; uri: string };
+  assert.match(fresh.uri, /^otpauth:\/\/totp\//);
+  const f: string[] = [];
+  const finish = (secret: string, c: string) => ({ out: (l: string) => f.push(l), readStdin: async () => JSON.stringify({ secret, code: c }) });
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--finish", "--stdin"], finish(fresh.secret, "000000")), 1);
+  assert.equal((JSON.parse(f[0] as string) as { ok: boolean }).ok, false);
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--finish", "--stdin"], finish(fresh.secret, totpAt(fresh.secret, totpStep(Date.now())))), 0);
+  assert.equal((JSON.parse(f[1] as string) as { ok: boolean }).ok, true);
+  lines2 = [];
+  let wrongOnce = true;
+  const interactive = {
+    out: (l: string) => lines2.push(l),
+    ask: async () => {
+      const secret = lines2[1] as string;
+      if (wrongOnce) {
+        wrongOnce = false;
+        return "000000";
+      }
+      return totpAt(secret, totpStep(Date.now()));
+    },
+  };
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login], interactive), 0);
+  assert.match(lines2.join("\n"), /wrong[\s\S]*Authenticator replaced for owner@example\.com/);
+  const secret3 = lines2[1] as string;
+  s.clock.t = Date.now() + 120_000;
+  assert.equal((await s.stack.auth.loginPassword({ login, password: "machine made password", totpCode: totpAt(secret3, totpStep(s.clock.t)) }, ctx)).role, "owner", "new authenticator, same password");
 });
 
 test("L5: an AT-flagged authData cut short is a 401-class verification failure, never a 500", async () => {

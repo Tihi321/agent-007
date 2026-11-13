@@ -308,3 +308,75 @@ test("L1: a target id of __proto__, constructor or toString is 'no such user' on
   const file = JSON.parse(readFileSync(w.stack.paths.usersFile, "utf8")) as { users: Record<string, unknown> };
   assert.deepEqual(Object.keys(file.users).length, 1, "only the owner is stored");
 });
+
+test("HTTP: password reset by the owner (step-up, not self) and self-service change (current password + code); no web route resets an authenticator", async () => {
+  const w = await world();
+  const alice = await w.addUser("alice@example.com");
+  const bob = await w.addUser("bob@example.com");
+  const adm = await w.addUser("admin@example.com", "admin");
+  const routes = { ...authRoutes(w.stack), ...adminRoutes(w.stack, w.admin) };
+  for (const [name, def] of Object.entries(routes)) assert.ok(!/totp|authenticator/i.test(name), `no authenticator reset route: ${name}`);
+  for (const name of ["POST /api/admin/users/password", "POST /api/account/password"]) assert.notEqual(routes[name]?.auth, "public", name);
+  const gw = await startGateway({
+    host: "127.0.0.1",
+    port: 0,
+    publicHosts: [PUBLIC],
+    audit: w.audit,
+    sessions: w.stack.sessions,
+    identify: async (req) => (req.headers["x-test-identity"] ? { ok: true, identity: { kind: "tailscale", login: String(req.headers["x-test-identity"]) } } : { ok: true, identity: { kind: "local" } }),
+    admit: w.admin.admit,
+    routes,
+    now: () => w.clock.t,
+  });
+  try {
+    const port = gw.port;
+    const host = `localhost:${port}`;
+    const asOwner = { origin: `http://${host}`, cookie: `__Host-a7web=${w.owner.sessionId}`, "x-csrf-token": w.owner.csrf };
+    const asTs = (s: { sessionId: string; csrf: string }, login: string) => ({ origin: `https://${PUBLIC}`, cookie: `__Host-a7web=${s.sessionId}`, "x-csrf-token": s.csrf, "x-test-identity": login });
+    const post = (path: string, body: unknown, headers: Record<string, string>, h = host) => http(port, "POST", path, { body, headers, host: h });
+    const newPw = "a brand new password";
+    const ownerSecret = w.stack.box.open(w.stack.credentials.read().users[w.owner.userId]!.password!.totpSealed, w.owner.userId);
+    // /api/me tells the page whether there is a password to change
+    const me = await http(port, "GET", "/api/me", { headers: asTs(alice, alice.login), host: PUBLIC });
+    assert.equal(me.json().user.hasPassword, true);
+
+    // owner reset: no cookie 401, user and admin sessions 403, stale step-up 401
+    assert.equal((await post("/api/admin/users/password", { id: bob.userId, password: newPw }, { origin: `http://${host}` })).status, 401);
+    assert.equal((await post("/api/admin/users/password", { id: bob.userId, password: newPw }, asTs(alice, alice.login), PUBLIC)).status, 403);
+    assert.equal((await post("/api/admin/users/password", { id: bob.userId, password: newPw }, asTs(adm, adm.login), PUBLIC)).status, 403);
+    w.clock.t += 6 * 60_000;
+    const stale = await post("/api/admin/users/password", { id: bob.userId, password: newPw }, asOwner);
+    assert.equal(stale.status, 401);
+    assert.equal(stale.json().error, "step_up_required");
+    w.stack.auth.stepUp(w.stack.sessions.resolve(w.owner.sessionId, { ip: "x", ua: "t" })!, { totpCode: totpAt(ownerSecret, totpStep(w.clock.t)) }, LOCAL);
+    assert.equal((await post("/api/admin/users/password", { id: w.owner.userId, password: newPw }, asOwner)).status, 403, "not your own row");
+    assert.equal((await post("/api/admin/users/password", { id: bob.userId, password: "short" }, asOwner)).status, 400);
+    const done = await post("/api/admin/users/password", { id: bob.userId, password: newPw }, asOwner);
+    assert.equal(done.status, 200, done.text);
+    assert.deepEqual(done.json(), { ok: true, ended: 1 });
+    assert.equal((await http(port, "GET", "/api/me", { headers: asTs(bob, bob.login), host: PUBLIC })).status, 401, "the target's old cookie is dead");
+    w.clock.t += 30_000;
+    await w.stack.auth.loginPassword({ login: bob.login, password: newPw, totpCode: totpAt(bob.secret, totpStep(w.clock.t)) }, ts(bob.login));
+
+    // self-service: wrong password or wrong code is 401, the right ones change it and sign the person out
+    const change = (s: typeof alice, body: Record<string, unknown>) => post("/api/account/password", body, asTs(s, s.login), PUBLIC);
+    const code = (s: { secret: string }) => totpAt(s.secret, totpStep(w.clock.t));
+    assert.equal((await change(alice, { currentPassword: "not the password", totpCode: code(alice), newPassword: newPw })).status, 401);
+    assert.equal((await change(alice, { currentPassword: alice.password, totpCode: "000000", newPassword: newPw })).status, 401);
+    const ok = await change(alice, { currentPassword: alice.password, totpCode: code(alice), newPassword: newPw });
+    assert.equal(ok.status, 200, ok.text);
+    assert.equal(ok.json().ok, true);
+    assert.match(String(ok.headers["set-cookie"]), /Max-Age=0/);
+    assert.equal((await http(port, "GET", "/api/me", { headers: asTs(alice, alice.login), host: PUBLIC })).status, 401, "the old cookie is dead");
+    w.clock.t += 30_000;
+    await w.stack.auth.loginPassword({ login: alice.login, password: newPw, totpCode: code(alice) }, ts(alice.login));
+    // five wrong attempts lock the account; then even the right ones get 429
+    const wrong = { currentPassword: "not the password", totpCode: code(adm), newPassword: newPw };
+    for (let i = 0; i < 5; i++) assert.equal((await change(adm, wrong)).status, 401, `attempt ${i + 1}`);
+    const locked = await change(adm, { currentPassword: adm.password, totpCode: code(adm), newPassword: newPw });
+    assert.equal(locked.status, 429);
+    assert.ok(Number(locked.headers["retry-after"]) > 0);
+  } finally {
+    await gw.close();
+  }
+});

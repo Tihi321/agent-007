@@ -75,6 +75,15 @@ export function adminRoutes(stack: WebStack, users: UserAdmin): Record<string, R
     "POST /api/admin/users/role": { auth: "owner", stepUp: true, handler: (c) => admin(() => (users.setRole(me(c), obj(c.body)["id"], obj(c.body)["role"]), { status: 200, body: { ok: true } })) },
     "POST /api/admin/users/disable": { auth: "admin", stepUp: true, handler: (c) => admin(() => (users.disableUser(me(c), obj(c.body)["id"]), { status: 200, body: { ok: true } })) },
     "POST /api/admin/users/enable": { auth: "admin", stepUp: true, handler: (c) => admin(() => (users.enableUser(me(c), obj(c.body)["id"]), { status: 200, body: { ok: true } })) },
+    "POST /api/admin/users/password": {
+      auth: "owner",
+      stepUp: true,
+      handler: (c) =>
+        admin(async () => {
+          const r = await users.resetUserPassword(me(c), obj(c.body)["id"], obj(c.body)["password"]);
+          return { status: 200, body: { ok: true, ended: r.ended } };
+        }),
+    },
     "POST /api/admin/users/delete": {
       auth: "owner",
       stepUp: true,

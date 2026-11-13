@@ -22,6 +22,8 @@ Port 47009 is the gateway. The settings UI (47008) and the job runner (47007) ar
 5. Stop the proxy and send a message: the bot answers from Strata once and says so.
 6. Lost the authenticator or passkey? On the PC: `yarn web-owner-code --data-dir <dir> --reset`, then claim again (this replaces the owner's sign-in methods and ends every session).
 
+Forgot a password? On the PC: `yarn web-reset-password --data-dir <dir> --login <email>` (asks for the new password twice), or the Accounts section of the desktop app. Lost the authenticator but still have the password? `yarn web-reset-totp --data-dir <dir> --login <email>`, or the desktop app; confirm with a code from the new entry. Both keep the passkeys and end that person's sessions.
+
 Passkeys: they work at `http://localhost:47009` (not at `127.0.0.1`, an IP address cannot be a passkey site) and later at the ts.net name. A passkey made at one address does not work at the other; password + authenticator works at both.
 
 ## L2: Tailscale (only after L1 passes)
@@ -34,6 +36,8 @@ Passkeys: they work at `http://localhost:47009` (not at `127.0.0.1`, an IP addre
 6. Invite someone: Admin, "Invite someone", enter their Tailscale login (recommended). Send the one-time link yourself (it is shown once, works once, 24 hours). They open it from their own tailnet device and set up a password + authenticator or a passkey. An invite without a pinned login admits nobody until the link (with its code) is opened; the first tailnet login that opens it becomes the only one that can use it, and everyone else keeps getting the generic 403.
 7. Paid routes (optional): a preset marked `"billing": "paid"` (DeepSeek API, Anthropic API credits, Gemini through the proxy) is off for every bot. In Admin, "Paid routes", enable it for one bot with a tokens-per-day and a tokens-per-month cap (needs a fresh confirmation). At the cap the bot falls back to its next model or refuses with a message; usage is in the audit and on the chat page. Telegram bots cannot use a paid preset.
 8. Revoke: Admin, "Disable" ends their sessions at once and keeps their data for 30 days, then deletes it. "Delete" (typed confirmation) removes it now.
+
+Reset someone's password: Admin, Reset password on their card (fresh confirmation). They change it themselves in Account (current password + authenticator code).
 
 ## What a user can and cannot do
 
@@ -57,5 +61,6 @@ You cannot read anyone's chats. The audit (Admin, owner only) holds ids, lengths
 - Another process on this PC can imitate the serve headers; it still needs a password + code or a passkey (accepted, T3).
 - Passkeys use a small verifier written for this project (ES256, no attestation). Review it before relying on passkeys alone.
 - The web chat uses the model endpoints directly instead of the Telegram agent's Harness, so a web turn is not durable across a gateway restart: the thread is kept, the unfinished answer is not.
+- An authenticator reset is only possible on the PC (CLI or desktop app), never on the web.
 
 - Changes to presets, billing marks (`"billing": "paid"`) and `termsAccepted` take effect only after restarting `yarn web`.

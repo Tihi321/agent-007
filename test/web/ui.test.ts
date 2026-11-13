@@ -453,3 +453,75 @@ test("L4: the UI step-up offers a passkey first (no code prompt when it works) a
     await t.close();
   }
 });
+
+test("account and admin pages: change-password and reset-password forms send the right fields and nothing about the authenticator", async () => {
+  (globalThis as any).document = fakeDocument;
+  const { renderAccount } = await load("account.js");
+  const { renderAdmin } = await load("admin.js");
+  const formOf = (el: FNode): FElement => {
+    let n: FNode | null = el;
+    while (n && !(n instanceof FElement && n.tagName === "form")) n = n.parent;
+    return n as FElement;
+  };
+  const type = (root: FNode, values: Record<string, string>) => Object.entries(values).forEach(([k, v]) => (byName(root, k).value = v));
+  const buttons = (root: FNode) => byTag(root, "button").map((b) => b.textContent.trim());
+
+  // Account: the form exists only when the account has a password
+  const calls: { path: string; body: any }[] = [];
+  let signedOut = 0;
+  const accountCtx = (hasPassword: boolean) => ({
+    role: "user",
+    signedOut: () => signedOut++,
+    api: {
+      get: async () => ({ ok: true, status: 200, data: { user: { hasPassword } } }),
+      call: async (path: string, body: any) => (calls.push({ path, body }), path === "/api/account/sessions" ? { ok: true, status: 200, data: { sessions: [] } } : { ok: true, status: 200, data: { ok: true } }),
+    },
+  });
+  const noPw = await renderAccount(accountCtx(false));
+  assert.ok(!all(noPw).some((e) => e.getAttribute("name") === "currentPassword"));
+  assert.match(noPw.textContent, /signs in with a passkey; it has no password/);
+  const page = await renderAccount(accountCtx(true));
+  const form = formOf(byName(page, "currentPassword"));
+  assert.equal(byName(page, "totpCode").getAttribute("inputmode"), "numeric");
+  assert.equal(byName(page, "newPassword").getAttribute("autocomplete"), "new-password");
+  type(page, { currentPassword: "old password here", totpCode: "123456", newPassword: "a brand new password", newPassword2: "different password!!" });
+  await form.fire("submit");
+  assert.ok(!calls.some((c) => c.path === "/api/account/password"), "mismatch: no call");
+  assert.match(page.textContent, /The two passwords differ\./);
+  type(page, { newPassword2: "a brand new password" });
+  await form.fire("submit");
+  assert.deepEqual(calls.find((c) => c.path === "/api/account/password")?.body, { currentPassword: "old password here", totpCode: "123456", newPassword: "a brand new password" });
+  assert.equal(signedOut, 1, "back to sign-in on ok");
+  assert.equal(byName(page, "newPassword").value, "", "inputs cleared");
+  assert.ok(!buttons(page).some((b) => /authenticator|totp/i.test(b)), "no authenticator reset control");
+
+  // Admin: only the owner sees Reset password, only on non-owner cards that have a password
+  const users = [
+    { id: "o1", login: "owner@example.com", displayName: "Olive", role: "owner", status: "active", hasPassword: true, caps: { maxBots: 1, maxChatsPerDay: 1, maxTokensPerDay: 1, presets: "all" } },
+    { id: "u1", login: "alice@example.com", displayName: "Alice", role: "user", status: "active", hasPassword: true, caps: { maxBots: 1, maxChatsPerDay: 1, maxTokensPerDay: 1, presets: [] } },
+    { id: "u2", login: "pk@example.com", displayName: "Pk", role: "user", status: "active", hasPassword: false, caps: { maxBots: 1, maxChatsPerDay: 1, maxTokensPerDay: 1, presets: [] } },
+  ];
+  const adminCalls: { path: string; body: any }[] = [];
+  const adminCtx = (role: string) => ({
+    role,
+    api: {
+      call: async (path: string, body: any) => {
+        adminCalls.push({ path, body });
+        const data: any = path === "/api/admin/users" ? { users } : path === "/api/admin/invites" ? { invites: [] } : path === "/api/admin/paid/list" ? { routes: [] } : path === "/api/admin/audit" ? { events: [] } : { ok: true };
+        return { ok: true, status: 200, data };
+      },
+    },
+  });
+  const asAdmin = await renderAdmin(adminCtx("admin"));
+  assert.ok(!buttons(asAdmin).includes("Reset password"), "an admin never sees it");
+  const asOwner = await renderAdmin(adminCtx("owner"));
+  assert.equal(buttons(asOwner).filter((b) => b === "Reset password").length, 1, "owner: alice only, not the owner card or the passkey-only user");
+  await buttonByText(asOwner, "Reset password").fire("click");
+  type(asOwner, { newPassword: "a brand new password", newPassword2: "nope nope nope nope" });
+  await formOf(byName(asOwner, "newPassword")).fire("submit");
+  assert.ok(!adminCalls.some((c) => c.path === "/api/admin/users/password"), "mismatch: no call");
+  type(asOwner, { newPassword2: "a brand new password" });
+  await formOf(byName(asOwner, "newPassword")).fire("submit");
+  assert.deepEqual(adminCalls.find((c) => c.path === "/api/admin/users/password")?.body, { id: "u1", password: "a brand new password" });
+  assert.ok(!/authenticator|totp/i.test(asOwner.textContent), "nothing about the authenticator on the admin page");
+});
