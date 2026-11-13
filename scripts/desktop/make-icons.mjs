@@ -69,12 +69,36 @@ function render(size, shade) {
   return out;
 }
 
+// Signed distance helpers in pixel units of a 16px design grid (x, y in 0..16).
+const segDist = (px, py, x1, y1, x2, y2) => {
+  const dx = x2 - x1, dy = y2 - y1;
+  const t = Math.max(0, Math.min(1, ((px - x1) * dx + (py - y1) * dy) / (dx * dx + dy * dy)));
+  return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+};
+const rrectSd = (px, py, cx, cy, hw, hh, r) => {
+  const qx = Math.abs(px - cx) - (hw - r), qy = Math.abs(py - cy) - (hh - r);
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r;
+};
+const BLUE = [0x1f, 0x6f, 0xeb];
+const WHITE = [255, 255, 255];
+const STROKE = 1.4; // bold "007" strokes, in 16px-grid units
+const DIGIT_TOP = 2.7, DIGIT_BOT = 9.3;
+
+/** Blue rounded-square "007" badge (same as ui/web/icon.svg) with a status dot bottom-right. */
 function trayShade(color) {
   return (x, y) => {
-    const d = Math.hypot(x - 0.5, y - 0.5);
-    if (d > 0.47) return null;
-    if (d > 0.37) return [255, 255, 255, 0.9]; // light ring keeps it visible on dark and light taskbars
-    return [...color, 1];
+    const px = x * 16, py = y * 16;
+    if (rrectSd(px, py, 8, 8, 8, 8, 3.4) > 0) return null;
+    // status dot with a thin white ring
+    const dd = Math.hypot(px - 12.2, py - 12.2);
+    if (dd < 3.0) return [...color, 1];
+    if (dd < 3.8) return [...WHITE, 1];
+    // two zeros: stroked rounded rects; a seven: top bar + diagonal
+    const hh = (DIGIT_BOT - DIGIT_TOP) / 2, cy = (DIGIT_TOP + DIGIT_BOT) / 2;
+    for (const cx of [3.1, 8.3]) if (Math.abs(rrectSd(px, py, cx, cy, 1.4, hh, 1.4)) < STROKE / 2) return [...WHITE, 1];
+    const d7 = Math.min(segDist(px, py, 11.9, DIGIT_TOP, 14.3, DIGIT_TOP), segDist(px, py, 14.3, DIGIT_TOP, 12.3, DIGIT_BOT));
+    if (d7 < STROKE / 2) return [...WHITE, 1];
+    return [...BLUE, 1];
   };
 }
 
@@ -116,6 +140,13 @@ fs.mkdirSync(path.join(root, "build"), { recursive: true });
 for (const [name, color] of Object.entries(colors)) {
   fs.writeFileSync(path.join(assets, `tray-${name}.png`), png(16, render(16, trayShade(color))));
   fs.writeFileSync(path.join(assets, `tray-${name}@2x.png`), png(32, render(32, trayShade(color))));
+  const prev = process.env.TRAY_PREVIEW_DIR; // optional: write 16/32/128px previews of each state there
+  if (prev) {
+    fs.mkdirSync(prev, { recursive: true });
+    fs.writeFileSync(path.join(prev, `tray-${name}-16.png`), png(16, render(16, trayShade(color))));
+    fs.writeFileSync(path.join(prev, `tray-${name}-32.png`), png(32, render(32, trayShade(color))));
+    fs.writeFileSync(path.join(prev, `tray-${name}-128.png`), png(128, render(128, trayShade(color))));
+  }
 }
 
 // Integer multiples of the 16px sprite only, so every size stays pixel-crisp.
