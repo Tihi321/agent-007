@@ -10,116 +10,187 @@
   <link rel="stylesheet" href="setup.css">
 </head>
 <body>
-  <main class="wrap">
-    <h1>agent-007</h1>
+  <header class="masthead">
+    <div class="masthead-inner">
+      <span class="mark" aria-hidden="true">007</span>
+      <div class="masthead-text">
+        <h1>agent-007</h1>
+        <p class="masthead-sub">Lives in the tray. Closing this window keeps it running.</p>
+      </div>
+    </div>
+  </header>
 
+  <main class="wrap">
     <!-- First run -->
     <section id="first-run" hidden>
-      <p class="muted">Welcome. This sets up your personal agent-007 on this PC. Nothing is sent anywhere; the data stays in the folder below.</p>
+      <p class="lede">Welcome. This sets up your personal agent-007 on this PC. Nothing is sent anywhere; the data stays in the folder below.</p>
 
-      <div class="card">
-        <h2>Data folder</h2>
-        <p><code id="folder-path"></code></p>
-        <p class="muted small" id="folder-note"></p>
-        <button id="pick-folder" type="button" class="btn">Use an existing folder...</button>
-      </div>
+      <!-- Section pattern: .group > .group-head (h2 + .group-desc) + .group-body. Copy it for new sections. -->
+      <section class="group" aria-labelledby="g-folder">
+        <div class="group-head">
+          <h2 id="g-folder">Data folder</h2>
+          <p class="group-desc">Where agent-007 keeps its settings, chats and logs.</p>
+        </div>
+        <div class="group-body">
+          <p class="path"><code id="folder-path"></code></p>
+          <p class="help" id="folder-note"></p>
+          <div class="actions">
+            <button id="pick-folder" type="button" class="btn">Use an existing folder...</button>
+          </div>
+        </div>
+      </section>
 
       <div id="answers">
-        <div class="card">
-          <h2>Model access</h2>
-          <div class="field">
-            <label for="proxy-key">ACP proxy key (optional)</label>
-            <input id="proxy-key" type="password" autocomplete="off" spellcheck="false">
+        <section class="group" aria-labelledby="g-model">
+          <div class="group-head">
+            <h2 id="g-model">Model access</h2>
+            <p class="group-desc">How the agent reaches its models.</p>
           </div>
-          <label class="check"><input id="terms" type="checkbox"> <span>I accept the Claude consumer terms (needed for the Claude presets).</span></label>
-          <p class="small"><a href="#" id="terms-link">Read the terms</a></p>
-        </div>
+          <div class="group-body">
+            <div class="field">
+              <label for="proxy-key">ACP proxy key <span class="optional">optional</span></label>
+              <input id="proxy-key" type="password" autocomplete="off" spellcheck="false">
+            </div>
+            <label class="check"><input id="terms" type="checkbox"> <span>I accept the Claude consumer terms (needed for the Claude presets).</span></label>
+            <p class="help check-help"><a href="#" id="terms-link">Read the terms</a></p>
+          </div>
+        </section>
 
-        <details class="card">
-          <summary>Telegram (optional, you can add it later)</summary>
-          <div class="field">
-            <label for="tg-token">Bot token</label>
-            <input id="tg-token" type="password" autocomplete="off" spellcheck="false">
+        <section class="group" aria-labelledby="g-tg-setup">
+          <div class="group-head">
+            <h2 id="g-tg-setup">Telegram</h2>
+            <p class="group-desc">Optional. You can add it later.</p>
           </div>
-          <div class="field">
-            <label for="tg-user">Your Telegram user id</label>
-            <input id="tg-user" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+          <div class="group-body">
+            <details class="disclosure">
+              <summary>Connect a Telegram bot</summary>
+              <div class="field">
+                <label for="tg-token">Bot token</label>
+                <input id="tg-token" type="password" autocomplete="off" spellcheck="false">
+              </div>
+              <div class="field">
+                <label for="tg-user">Your Telegram user id</label>
+                <input id="tg-user" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+              </div>
+            </details>
           </div>
-        </details>
+        </section>
       </div>
 
-      <div class="card notice">
+      <div class="callout warn">
         <h2>Personal mode</h2>
-        <p class="small">The agent's shell tool runs as you. The only barrier to it changing its own security settings is the path policy, so agent-007 never lists its data folder as a folder the agent may write. For stronger isolation use the hardened install.</p>
+        <p>The agent's shell tool runs as you. The only barrier to it changing its own security settings is the path policy, so agent-007 never lists its data folder as a folder the agent may write. For stronger isolation use the hardened install.</p>
       </div>
 
       <p id="setup-error" class="banner error" role="alert" hidden></p>
-      <button id="finish" type="button" class="btn primary">Finish</button>
+      <div class="actions end">
+        <button id="finish" type="button" class="btn primary">Finish</button>
+      </div>
     </section>
 
     <!-- After setup -->
     <section id="dashboard" hidden>
-      <div id="claim" class="card claim" hidden>
-        <h2>Claim agent-007</h2>
-        <p class="small">No owner yet. Open the claim page on this PC and enter this one-time code. It is valid for 10 minutes and is shown only here.</p>
-        <p><code id="claim-code" class="code"></code></p>
-        <div class="row">
+      <div id="claim" class="claim" hidden>
+        <div class="claim-head">
+          <h2>Claim agent-007</h2>
+          <p class="claim-intro" id="claim-intro">No owner yet. Open the claim page on this PC and enter this one-time code. It is valid for 10 minutes and is shown only here.</p>
+        </div>
+        <p id="claim-code-wrap" class="claim-code-wrap"><code id="claim-code" class="code"></code></p>
+        <div class="actions" id="claim-actions">
           <button id="copy-claim" type="button" class="btn">Copy</button>
           <button id="open-claim" type="button" class="btn primary">Open claim page</button>
         </div>
-        <p id="claim-msg" class="small muted"></p>
+        <p id="claim-msg" class="claim-msg" role="status"></p>
       </div>
 
-      <div class="card">
-        <h2>Services</h2>
-        <ul id="services" class="services"></ul>
-        <div class="row">
-          <button id="open-gateway" type="button" class="btn">Open agent-007</button>
-          <button id="new-claim" type="button" class="btn">Show claim code</button>
+      <!-- Section pattern: .group > .group-head (h2 + .group-desc) + .group-body. Copy it for new sections (for example Accounts). -->
+      <section class="group" aria-labelledby="g-services">
+        <div class="group-head">
+          <h2 id="g-services">Services</h2>
+          <p class="group-desc">What is running on this PC right now.</p>
         </div>
-      </div>
+        <div class="group-body">
+          <ul id="services" class="services"></ul>
+          <div class="actions">
+            <button id="open-gateway" type="button" class="btn primary">Open agent-007</button>
+            <button id="new-claim" type="button" class="btn">Show claim code</button>
+          </div>
+        </div>
+      </section>
 
-      <div class="card">
-        <h2>Switches</h2>
-        <label class="check"><input id="tg-toggle" type="checkbox"> <span>Telegram agent</span></label>
-        <p class="small muted" id="tg-hint"></p>
-        <label class="check"><input id="jr-toggle" type="checkbox"> <span>Job runner (not isolated in personal mode)</span></label>
-        <p class="small muted" id="jr-hint">Off by default. Turning it on shows a warning first.</p>
-        <label class="check"><input id="login-toggle" type="checkbox"> <span>Launch at login</span></label>
-        <p class="small muted" id="login-hint"></p>
-        <p id="toggle-msg" class="small" role="status"></p>
-      </div>
+      <section class="group" aria-labelledby="g-switches">
+        <div class="group-head">
+          <h2 id="g-switches">Switches</h2>
+          <p class="group-desc">Changes apply right away.</p>
+        </div>
+        <div class="group-body">
+          <div class="switch-row">
+            <div class="switch-text">
+              <label for="tg-toggle">Telegram agent</label>
+              <p class="help" id="tg-hint"></p>
+            </div>
+            <input id="tg-toggle" type="checkbox" class="switch" role="switch" aria-describedby="tg-hint">
+          </div>
+          <div class="switch-row">
+            <div class="switch-text">
+              <label for="jr-toggle">Job runner</label>
+              <p class="help" id="jr-hint">Not isolated in personal mode. Off by default. Turning it on shows a warning first.</p>
+            </div>
+            <input id="jr-toggle" type="checkbox" class="switch" role="switch" aria-describedby="jr-hint">
+          </div>
+          <div class="switch-row">
+            <div class="switch-text">
+              <label for="login-toggle">Launch at login</label>
+              <p class="help path-help" id="login-hint"></p>
+            </div>
+            <input id="login-toggle" type="checkbox" class="switch" role="switch" aria-describedby="login-hint">
+          </div>
+          <p id="toggle-msg" class="small" role="status"></p>
+        </div>
+      </section>
 
-      <div class="card">
-        <h2>Keys and Telegram</h2>
-        <p class="small muted">Values are sent to the launcher and never shown again. Leave a field empty to keep what is stored.</p>
-        <div class="field">
-          <label for="u-proxy-key">ACP proxy key <span id="key-state" class="badge"></span></label>
-          <input id="u-proxy-key" type="password" autocomplete="off" spellcheck="false">
+      <section class="group" aria-labelledby="g-keys">
+        <div class="group-head">
+          <h2 id="g-keys">Keys and Telegram</h2>
+          <p class="group-desc">Values are sent to the launcher and never shown again. Leave a field empty to keep what is stored.</p>
         </div>
-        <label class="check"><input id="u-terms" type="checkbox"> <span>I accept the Claude consumer terms.</span></label>
-        <div class="field">
-          <label for="u-tg-token">Telegram bot token</label>
-          <input id="u-tg-token" type="password" autocomplete="off" spellcheck="false">
+        <div class="group-body">
+          <div class="field">
+            <label for="u-proxy-key">ACP proxy key <span id="key-state" class="badge"></span></label>
+            <input id="u-proxy-key" type="password" autocomplete="off" spellcheck="false">
+          </div>
+          <label class="check"><input id="u-terms" type="checkbox"> <span>I accept the Claude consumer terms.</span></label>
+          <div class="field">
+            <label for="u-tg-token">Telegram bot token</label>
+            <input id="u-tg-token" type="password" autocomplete="off" spellcheck="false">
+          </div>
+          <div class="field">
+            <label for="u-tg-user">Telegram user id</label>
+            <input id="u-tg-user" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
+            <p class="help">Only this Telegram account can talk to the agent.</p>
+          </div>
+          <div class="actions">
+            <button id="save-secrets" type="button" class="btn primary">Save</button>
+            <p id="secrets-msg" class="small" role="status"></p>
+          </div>
+          <p class="help">Restart the gateway or the Telegram agent from the tray menu for a new key to take effect.</p>
         </div>
-        <div class="field">
-          <label for="u-tg-user">Telegram user id</label>
-          <input id="u-tg-user" type="text" inputmode="numeric" autocomplete="off" spellcheck="false">
-        </div>
-        <button id="save-secrets" type="button" class="btn primary">Save</button>
-        <p id="secrets-msg" class="small" role="status"></p>
-        <p class="small muted">Restart the gateway or the Telegram agent from the tray menu for a new key to take effect.</p>
-      </div>
+      </section>
 
-      <div class="card">
-        <h2>Folders</h2>
-        <p class="small">Data folder: <code id="root-path"></code></p>
-        <p class="small muted" id="data-note"></p>
-        <div class="row">
-          <button id="open-logs" type="button" class="btn">Open logs folder</button>
-          <button id="open-data" type="button" class="btn">Open data folder</button>
+      <section class="group" aria-labelledby="g-folders">
+        <div class="group-head">
+          <h2 id="g-folders">Folders</h2>
+          <p class="group-desc">Where agent-007 keeps its data and logs.</p>
         </div>
-      </div>
+        <div class="group-body">
+          <p class="path"><code id="root-path"></code></p>
+          <p class="help" id="data-note"></p>
+          <div class="actions">
+            <button id="open-logs" type="button" class="btn">Open logs folder</button>
+            <button id="open-data" type="button" class="btn">Open data folder</button>
+          </div>
+        </div>
+      </section>
     </section>
   </main>
   <script src="setup.js"></script>

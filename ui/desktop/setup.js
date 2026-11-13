@@ -21,10 +21,11 @@ function showMsg(id, text, bad) {
   el.className = `small ${bad ? "bad" : "ok"}`;
 }
 
-function describe(name, v) {
-  if (name === "jobrunner" && (v.state === "running" || v.state === "starting")) return "Job runner on (not isolated)";
-  if (v.state === "error") return `${TITLES[name]}: error${v.reason ? ` - ${v.reason}` : ""}`;
-  return `${TITLES[name]}: ${v.state}`;
+// The note under a service name: the error reason, or the job runner's isolation warning while it is on.
+function describeNote(name, v) {
+  if (name === "jobrunner" && (v.state === "running" || v.state === "starting")) return "On (not isolated)";
+  if (v.state === "error") return v.reason || "";
+  return "";
 }
 
 function renderServices(services) {
@@ -33,16 +34,29 @@ function renderServices(services) {
   for (const name of ["gateway", "telegram", "jobrunner"]) {
     const v = services[name];
     const li = document.createElement("li");
-    const dot = document.createElement("span");
-    dot.className = `dot ${v.state}`;
     const label = document.createElement("span");
     label.className = "name";
-    label.textContent = describe(name, v);
-    li.append(dot, label);
+    const title = document.createElement("span");
+    title.className = "svc-title";
+    title.textContent = TITLES[name];
+    label.append(title);
+    const note = describeNote(name, v);
+    if (note) {
+      const sub = document.createElement("span");
+      sub.className = "svc-note";
+      sub.textContent = note;
+      label.append(sub);
+    }
+    const pill = document.createElement("span");
+    pill.className = `pill ${v.state}`;
+    const dot = document.createElement("span");
+    dot.className = "dot";
+    pill.append(dot, document.createTextNode(v.state));
+    li.append(label, pill);
     if (v.state === "error") {
       const retry = document.createElement("button");
       retry.type = "button";
-      retry.className = "btn";
+      retry.className = "btn small-btn";
       retry.textContent = "Retry";
       retry.addEventListener("click", () => void api.retry(name));
       li.append(retry);
@@ -137,18 +151,29 @@ $("finish").addEventListener("click", async () => {
   }
 });
 
+// Show only what matches the claim state: the code and its intro when there is a code, otherwise just the message.
+function showClaimState(hasCode, ownerExists) {
+  $("claim-intro").hidden = !hasCode;
+  $("claim-code-wrap").hidden = !hasCode;
+  $("copy-claim").hidden = !hasCode;
+  $("claim-actions").hidden = ownerExists;
+}
+
 api.onClaimCode((c) => {
   const box = $("claim");
   if (c && c.code) {
     box.hidden = false;
+    showClaimState(true, false);
     setText("claim-code", c.code);
     setText("claim-msg", "");
   } else if (c && c.ownerExists) {
     box.hidden = false;
+    showClaimState(false, true);
     setText("claim-code", "");
     setText("claim-msg", "An owner already exists, so no claim code is needed. Use Open agent-007 to sign in.");
   } else if (c && c.message) {
     box.hidden = false;
+    showClaimState(false, false);
     setText("claim-code", "");
     setText("claim-msg", c.message);
   }
