@@ -4,6 +4,28 @@ import { withStepUp } from "./account.js";
 import { clear, field, h, when } from "./dom.js";
 import { renderPresetChecklist } from "./models.js";
 
+/** The owner sets a new password for someone else. They are told it out of band; their sessions end. Nothing here touches the authenticator. */
+function resetPasswordForm(x, act, note) {
+  const a = h("input", { type: "password", name: "newPassword", autocomplete: "new-password" });
+  const b = h("input", { type: "password", name: "newPassword2", autocomplete: "new-password" });
+  return h(
+    "form",
+    {
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        if (a.value !== b.value) return note(false, "The two passwords differ.");
+        const password = a.value;
+        a.value = "";
+        b.value = "";
+        await act("/api/admin/users/password", { id: x.id, password }, "Password reset. Their sessions ended. Tell them the new password yourself.");
+      },
+    },
+    field("New password (12 or more characters)", a),
+    field("New password again", b),
+    h("button", { class: "btn btn-small btn-primary", type: "submit" }, "Set new password"),
+  );
+}
+
 export async function renderAdmin(ctx) {
   const out = h("div", { "aria-live": "polite" });
   const usersEl = h("ul", { class: "cards", role: "list" });
@@ -23,6 +45,7 @@ export async function renderAdmin(ctx) {
       usersEl,
       (u.ok ? u.data.users : []).map((x) => {
         const modelsHost = h("div", {});
+        const pwHost = h("div", {});
         return h(
           "li",
           { class: "card" },
@@ -44,12 +67,14 @@ export async function renderAdmin(ctx) {
                   // Keeps every other cap unchanged; only caps.presets is replaced (Caps.presets, max 128).
                   clear(modelsHost, await renderPresetChecklist(ctx, x, (ids) => act("/api/admin/users/caps", { id: x.id, caps: { ...x.caps, presets: ids } }, "Models changed. Their sessions were restarted.")));
                 } }, "Models…") : null,
+                ctx.role === "owner" && x.hasPassword ? h("button", { class: "btn btn-small", type: "button", onclick: () => clear(pwHost, resetPasswordForm(x, act, note)) }, "Reset password") : null,
                 ctx.role === "owner" ? h("button", { class: "btn btn-small btn-danger", type: "button", onclick: () => {
                   const c = ctx.prompt(`Type ${x.login} to delete this user and all their data`, "");
                   if (c) act("/api/admin/users/delete", { id: x.id, confirm: c }, "Deleted.");
                 } }, "Delete") : null,
               ),
           modelsHost,
+          pwHost,
         );
       }),
     );

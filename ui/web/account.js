@@ -38,6 +38,40 @@ export async function withStepUp(ctx, fn, host) {
   return r;
 }
 
+/** Change my password: the current password and an authenticator code are the confirmation. On success every session ends, so back to sign-in. */
+function changePasswordForm(ctx) {
+  const msg = h("div", { "aria-live": "polite" });
+  const current = h("input", { type: "password", name: "currentPassword", autocomplete: "current-password" });
+  const totp = h("input", { type: "text", name: "totpCode", inputmode: "numeric", autocomplete: "one-time-code" });
+  const next = h("input", { type: "password", name: "newPassword", autocomplete: "new-password" });
+  const next2 = h("input", { type: "password", name: "newPassword2", autocomplete: "new-password" });
+  const wipe = () => {
+    for (const i of [current, totp, next, next2]) i.value = "";
+  };
+  const fail = (text) => clear(msg, h("p", { class: "banner banner-error", role: "alert" }, text));
+  return h(
+    "form",
+    {
+      class: "card",
+      onsubmit: async (ev) => {
+        ev.preventDefault();
+        if (next.value !== next2.value) return fail("The two passwords differ.");
+        const r = await ctx.api.call("/api/account/password", { currentPassword: current.value, totpCode: totp.value.trim(), newPassword: next.value });
+        wipe();
+        if (r.ok) return ctx.signedOut();
+        fail(r.data.message || "The password could not be changed.");
+      },
+    },
+    h("h3", {}, "Change password"),
+    field("Current password", current),
+    field("Authenticator code", totp),
+    field("New password (12 or more characters)", next),
+    field("New password again", next2),
+    h("button", { class: "btn", type: "submit" }, "Change password"),
+    msg,
+  );
+}
+
 export async function renderAccount(ctx) {
   const out = h("div", { "aria-live": "polite" });
   const sessions = h("ul", { class: "plainlist", role: "list" });
@@ -56,6 +90,9 @@ export async function renderAccount(ctx) {
     );
   };
   await loadSessions();
+  const me = await ctx.api.get("/api/me", { quiet: true });
+  const hasPassword = me.ok && me.data.user && me.data.user.hasPassword === true;
+  const pwForm = hasPassword ? changePasswordForm(ctx) : h("p", { class: "muted" }, "This account signs in with a passkey; it has no password.");
   const root = h(
     "section",
     { class: "page", "aria-labelledby": "acct-title" },
@@ -64,6 +101,7 @@ export async function renderAccount(ctx) {
     sessions,
     h("button", { class: "btn", type: "button", onclick: async () => { await ctx.api.call("/api/account/signout-everywhere", {}); ctx.signedOut(); } }, "Sign out everywhere"),
     h("h2", {}, "Sign-in methods"),
+    pwForm,
     passkeysAvailable()
       ? h("button", { class: "btn", type: "button", onclick: async () => {
           const r = await withStepUp(ctx, () => ctx.api.call("/api/account/passkey/begin", {}), out);

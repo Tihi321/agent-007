@@ -9,7 +9,7 @@
 import { existsSync, rmSync } from "node:fs";
 import { AuthError, newRecoveryCodes } from "./auth.js";
 import type { AuthContext, LoggedIn } from "./auth.js";
-import { MIN_PASSWORD_LENGTH, hashPassword, hashSecret, randomToken, safeEqual } from "./crypto.js";
+import { hashPassword, hashSecret, passwordProblem, randomToken, safeEqual } from "./crypto.js";
 import { USER_TOOL_UNIVERSE } from "./capabilities.js";
 import { isUserId, newInviteId, newUserId } from "./ids.js";
 import { userPaths } from "./paths.js";
@@ -279,8 +279,8 @@ export class UserAdmin {
         throw e;
       }
     } else {
-      const password = typeof req.password === "string" ? req.password : "";
-      if (password.length < MIN_PASSWORD_LENGTH || password.length > 200) throw new AuthError("bad_request", `The password needs at least ${MIN_PASSWORD_LENGTH} characters.`);
+      const problem = passwordProblem(req.password);
+      if (problem) throw new AuthError("bad_request", problem);
       const st = verifyTotp(p.totpSecret, typeof req.totpCode === "string" ? req.totpCode : "", this.#now(), 0);
       if (st === undefined) throw new AuthError("invalid", "The authenticator code is wrong. Check the clock on your phone.");
       totpStep0 = st;
@@ -326,9 +326,20 @@ export class UserAdmin {
   // ---- users ---------------------------------------------------------------------------------------------------------
 
   /** The owner row reports `presets: "all"` (I61): the owner's models are every configured preset, not a stored list. */
-  listUsers(actorId: string): { id: string; login: string; displayName: string; role: Role; status: string; caps: Omit<Caps, "presets"> & { presets: string[] | "all" }; createdAt: number; disabledAt?: number }[] {
+  listUsers(actorId: string): { id: string; login: string; displayName: string; role: Role; status: string; caps: Omit<Caps, "presets"> & { presets: string[] | "all" }; createdAt: number; disabledAt?: number; hasPassword: boolean }[] {
     this.#actor(actorId);
-    return Object.entries(this.#s.users.read().users).map(([id, u]) => ({ id, login: u.login, displayName: u.displayName, role: u.role, status: u.status, caps: u.role === "owner" ? { ...u.caps, presets: "all" as const } : u.caps, createdAt: u.createdAt, ...(u.disabledAt !== undefined ? { disabledAt: u.disabledAt } : {}) }));
+    const creds = this.#s.credentials.read().users;
+    return Object.entries(this.#s.users.read().users).map(([id, u]) => ({ id, login: u.login, displayName: u.displayName, role: u.role, status: u.status, caps: u.role === "owner" ? { ...u.caps, presets: "all" as const } : u.caps, createdAt: u.createdAt, ...(u.disabledAt !== undefined ? { disabledAt: u.disabledAt } : {}), hasPassword: creds[id]?.password !== undefined }));
+  }
+
+  /** Owner only. Not the actor's own record. The shared reset in AuthService does the work (hash only, sessions end, lockout clears, audit). */
+  async resetUserPassword(actorId: string, targetId: unknown, newPassword: unknown): Promise<{ ended: number }> {
+    const actor = this.#actor(actorId);
+    if (actor.user.role !== "owner") throw new AdminError(403, "Only the owner can reset a password.");
+    const id = this.#targetId(targetId);
+    if (!recordFor(this.#s.users.read().users, id)) throw new AdminError(404, "No such user.");
+    if (id === actorId) throw new AdminError(403, "Change your own password in Account.");
+    return this.#s.auth.resetPassword({ targetId: id, newPassword, channel: "admin", actorId });
   }
 
   setCaps(actorId: string, targetId: unknown, capsIn: unknown): void {

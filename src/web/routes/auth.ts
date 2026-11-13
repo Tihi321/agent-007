@@ -86,7 +86,8 @@ export function authRoutes(stack: WebStack, hooks: { onLockdown?: () => void } =
         const s = c.session;
         if (!s) return { status: 401, body: { error: "no_session" } };
         const u = stack.users.read().users[s.userId];
-        return { status: 200, body: { csrf: s.csrf, user: { displayName: u?.displayName ?? "", login: s.login, role: s.role }, stepUpFresh: Date.now() - s.stepUpAt < 5 * 60_000 } };
+        const hasPassword = stack.credentials.read().users[s.userId]?.password !== undefined;
+        return { status: 200, body: { csrf: s.csrf, user: { displayName: u?.displayName ?? "", login: s.login, role: s.role, hasPassword }, stepUpFresh: Date.now() - s.stepUpAt < 5 * 60_000 } };
       },
     },
     "POST /api/stepup/options": {
@@ -116,6 +117,16 @@ export function authRoutes(stack: WebStack, hooks: { onLockdown?: () => void } =
           const b = obj(c.body);
           if (c.session) auth.passkeyRegisterFinish(c.session, { id: b["id"], clientDataJSON: b["clientDataJSON"], attestationObject: b["attestationObject"], label: b["label"] });
           return { status: 200, body: { ok: true } };
+        }),
+    },
+    "POST /api/account/password": {
+      auth: "session",
+      handler: (c) =>
+        guarded(async () => {
+          if (!c.session) return { status: 401, body: { error: "no_session" } };
+          const b = obj(c.body);
+          const r = await auth.changeOwnPassword(c.session, { currentPassword: b["currentPassword"], totpCode: b["totpCode"], newPassword: b["newPassword"] }, authContext(c));
+          return { status: 200, body: { ok: true, ended: r.ended }, headers: { "Set-Cookie": clearCookie() } };
         }),
     },
     "POST /api/account/sessions": { auth: "session", handler: async (c) => ({ status: 200, body: { sessions: c.session ? sessions.list(c.session.userId, c.session.idHash) : [] } }) },
