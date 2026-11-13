@@ -3,7 +3,7 @@
  * doubling on each further lockout up to 24 h). The lockout state can be persisted so a restart does not clear it. The `onLockout`
  * callback is how the owner is told on Telegram.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { atomicWriteJson } from "./store.js";
 
 export class TokenBuckets {
@@ -47,6 +47,8 @@ export class LockoutTracker {
   readonly #m = new Map<string, LockState>();
   readonly #file: string | undefined;
   readonly #onLockout: ((key: string, ms: number) => void) | undefined;
+  /** mtime and size of the file as of the last load or save; another process (the CLI) changing it triggers a reload. */
+  #seen: { mtimeMs: number; size: number } | undefined;
 
   constructor(o: { now?: () => number; file?: string; onLockout?: (key: string, ms: number) => void } = {}) {
     this.#now = o.now ?? Date.now;
@@ -59,15 +61,54 @@ export class LockoutTracker {
         if (typeof v?.fails === "number" && typeof v?.level === "number" && typeof v?.lockedUntil === "number") this.#m.set(k, v);
       }
     }
+    this.#remember();
+  }
+
+  #stat(): { mtimeMs: number; size: number } | undefined {
+    if (!this.#file) return undefined;
+    try {
+      const st = statSync(this.#file);
+      return { mtimeMs: st.mtimeMs, size: st.size };
+    } catch {
+      return undefined;
+    }
+  }
+
+  #remember(): void {
+    this.#seen = this.#stat();
+  }
+
+  /** Reloads the map when another process changed the file since we last looked. A file that does not parse keeps the map as it is. */
+  #sync(): void {
+    if (!this.#file) return;
+    const now = this.#stat();
+    if (now?.mtimeMs === this.#seen?.mtimeMs && now?.size === this.#seen?.size) return;
+    if (!now) {
+      this.#m.clear();
+      this.#seen = undefined;
+      return;
+    }
+    try {
+      const raw = JSON.parse(readFileSync(this.#file, "utf8")) as Record<string, LockState>;
+      this.#m.clear();
+      for (const [k, v] of Object.entries(raw)) {
+        if (typeof v?.fails === "number" && typeof v?.level === "number" && typeof v?.lockedUntil === "number") this.#m.set(k, v);
+      }
+      this.#seen = now;
+    } catch {
+      /* unparsable: keep the map; the startup check already fails closed */
+    }
   }
 
   /** Milliseconds left on a lockout for `key` (0 = free). */
   lockedFor(key: string): number {
+    this.#sync();
     return Math.max(0, (this.#m.get(key)?.lockedUntil ?? 0) - this.#now());
   }
 
   /** Records one failure. Returns the lockout in ms when this failure started one. */
   fail(key: string): number {
+    this.#sync();
     const s = this.#m.get(key) ?? { fails: 0, level: 0, lockedUntil: 0 };
     if (s.lockedUntil > this.#now()) return 0;
     s.fails += 1;
@@ -92,6 +133,7 @@ export class LockoutTracker {
 
   /** A success clears the failure count (the lockout level decays only after a day of quiet). */
   ok(key: string): void {
+    this.#sync();
     const s = this.#m.get(key);
     if (!s) return;
     s.fails = 0;
@@ -99,7 +141,16 @@ export class LockoutTracker {
     this.#save();
   }
 
+  /** Forgets everything about `key` (fail count, level, lock). Persists. */
+  clear(key: string): void {
+    this.#sync();
+    if (!this.#m.delete(key)) return;
+    this.#save();
+  }
+
   #save(): void {
-    if (this.#file) atomicWriteJson(this.#file, Object.fromEntries(this.#m));
+    if (!this.#file) return;
+    atomicWriteJson(this.#file, Object.fromEntries(this.#m));
+    this.#remember();
   }
 }

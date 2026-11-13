@@ -29,6 +29,13 @@ function scryptAsync(password: string, salt: Buffer, keylen: number, opts: { N: 
 
 export const MIN_PASSWORD_LENGTH = 12;
 
+/** The claim rule for a new password: a string of 12 to 200 characters. Returns the sentence to show, or undefined when it is fine. */
+export function passwordProblem(pw: unknown): string | undefined {
+  if (typeof pw !== "string" || pw.length < MIN_PASSWORD_LENGTH) return `The password needs at least ${MIN_PASSWORD_LENGTH} characters.`;
+  if (pw.length > 200) return "The password can have at most 200 characters.";
+  return undefined;
+}
+
 /** `scrypt$N$r$p$salt$hash` */
 export async function hashPassword(password: string): Promise<string> {
   const salt = randomBytes(16);
