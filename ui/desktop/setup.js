@@ -206,5 +206,63 @@ $("save-secrets").addEventListener("click", async () => {
   await refresh();
 });
 
+// Accounts: password and authenticator reset. The key and the code are never written to the console (the launcher logs it).
+function clearTotpBox() {
+  setText("acct-totp-key", "");
+  setText("acct-totp-uri", "");
+  $("acct-totp-code").value = "";
+  $("acct-totp-box").hidden = true;
+}
+
+function clearAcctPasswords() {
+  $("acct-pw").value = "";
+  $("acct-pw2").value = "";
+}
+
+$("acct-reset-pw").addEventListener("click", async () => {
+  const password = $("acct-pw").value;
+  if (password !== $("acct-pw2").value) {
+    showMsg("acct-msg", "The two passwords differ.", true);
+    return;
+  }
+  const button = $("acct-reset-pw");
+  button.disabled = true;
+  try {
+    const r = await api.resetPassword({ login: $("acct-login").value, password });
+    showMsg("acct-msg", r.message || (r.ok ? "Password reset." : "The reset failed."), !r.ok);
+  } finally {
+    clearAcctPasswords();
+    button.disabled = false;
+  }
+});
+
+$("acct-reset-totp").addEventListener("click", async () => {
+  clearAcctPasswords();
+  const r = await api.beginTotpReset({ login: $("acct-login").value });
+  if (r.ok) {
+    setText("acct-totp-key", r.secret);
+    setText("acct-totp-uri", r.uri);
+    $("acct-totp-code").value = "";
+    $("acct-totp-box").hidden = false;
+    showMsg("acct-msg", "", false);
+  } else {
+    clearTotpBox();
+    showMsg("acct-msg", r.message || "The reset failed.", true);
+  }
+});
+
+$("acct-totp-confirm").addEventListener("click", async () => {
+  const r = await api.finishTotpReset({ code: $("acct-totp-code").value.trim() });
+  if (r.ok) clearTotpBox();
+  else $("acct-totp-code").value = "";
+  showMsg("acct-msg", r.message || (r.ok ? "Authenticator replaced." : "The reset failed."), !r.ok);
+});
+
+$("acct-totp-cancel").addEventListener("click", async () => {
+  await api.cancelTotpReset();
+  clearTotpBox();
+  showMsg("acct-msg", "", false);
+});
+
 api.onState((s) => render(s));
 void refresh();

@@ -80,13 +80,14 @@ function cleanEnv(): NodeJS.ProcessEnv {
   return env;
 }
 
-/** Runs a node script to completion (owner-code, settings-link). Resolves with exit code and stdout; never logs the output. */
-function runNode(script: string, args: string[]): Promise<{ code: number; stdout: string }> {
+/** Runs a node script to completion (owner-code, settings-link). Resolves with exit code and stdout; never logs the output. `input` goes to the child's stdin (secrets never go in argv). */
+function runNode(script: string, args: string[], input?: string): Promise<{ code: number; stdout: string }> {
   return new Promise((resolve) => {
-    execFile(layout.nodeExe, [script, ...args], { cwd: layout.appDir, env: cleanEnv(), windowsHide: true, timeout: 30_000, maxBuffer: 1 << 20 }, (err, stdout) => {
+    const child = execFile(layout.nodeExe, [script, ...args], { cwd: layout.appDir, env: cleanEnv(), windowsHide: true, timeout: 30_000, maxBuffer: 1 << 20 }, (err, stdout) => {
       const code = err ? (typeof (err as { code?: unknown }).code === "number" ? ((err as { code: number }).code) : 1) : 0;
       resolve({ code, stdout: String(stdout ?? "") });
     });
+    if (input !== undefined) child.stdin?.end(input);
   });
 }
 
@@ -516,6 +517,72 @@ async function runSetup(raw: unknown): Promise<Result> {
   }
 }
 
+// ---- accounts: password and authenticator reset (local only, through the web CLI in machine mode) ----
+const TOTP_RESET_TTL_MS = 10 * 60_000;
+/** The new authenticator key lives here until it is confirmed. It never goes back from the page. */
+let pendingTotp: { login: string; secret: string; expiresAt: number } | undefined;
+
+/** Runs the web CLI in machine mode and parses the last stdout line as JSON. Never logs the output. */
+async function runAccountCli(args: string[], input?: unknown): Promise<{ ok: boolean; [key: string]: unknown }> {
+  const r = await runNode(sp.webCli, [...args, "--data-dir", personalPaths(root).dataDir], input === undefined ? undefined : JSON.stringify(input));
+  const last = r.stdout.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).pop();
+  try {
+    const parsed: unknown = JSON.parse(last ?? "");
+    if (parsed !== null && typeof parsed === "object" && typeof (parsed as { ok?: unknown }).ok === "boolean") return parsed as { ok: boolean; [key: string]: unknown };
+  } catch {
+    /* fall through */
+  }
+  return { ok: false, message: "The reset could not run." };
+}
+
+function accountLogin(raw: unknown): string | undefined {
+  const login = typeof raw === "string" ? raw.trim() : "";
+  return login.length >= 3 && login.length <= 120 && login.includes("@") ? login : undefined;
+}
+
+const asMessage = (r: Record<string, unknown>): string => (typeof r.message === "string" ? r.message : "The reset failed.");
+
+async function accountResetPassword(req: unknown): Promise<Result> {
+  if (!setupDone(root)) return { ok: false, message: "Finish setup first." };
+  const o = (typeof req === "object" && req !== null ? req : {}) as Record<string, unknown>;
+  const login = accountLogin(o["login"]);
+  if (!login) return { ok: false, message: "Enter the person's login (an email address)." };
+  if (typeof o["password"] !== "string" || o["password"].length > 200) return { ok: false, message: "The password can have at most 200 characters." };
+  const r = await runAccountCli(["reset-password", "--login", login, "--stdin"], { password: o["password"] });
+  log(`web password reset: ${r.ok ? "ok" : "failed"}`);
+  return r.ok ? { ok: true, message: `Password reset. ${Number(r["ended"]) || 0} web session(s) ended.` } : { ok: false, message: asMessage(r) };
+}
+
+async function accountBeginTotp(req: unknown): Promise<Result & { secret?: string; uri?: string }> {
+  if (!setupDone(root)) return { ok: false, message: "Finish setup first." };
+  const o = (typeof req === "object" && req !== null ? req : {}) as Record<string, unknown>;
+  const login = accountLogin(o["login"]);
+  if (!login) return { ok: false, message: "Enter the person's login (an email address)." };
+  const r = await runAccountCli(["reset-totp", "--login", login, "--begin"]);
+  if (r.ok && typeof r["secret"] === "string" && typeof r["uri"] === "string") {
+    pendingTotp = { login, secret: r["secret"], expiresAt: Date.now() + TOTP_RESET_TTL_MS };
+    return { ok: true, secret: r["secret"], uri: r["uri"] };
+  }
+  log("web authenticator reset: failed");
+  return { ok: false, message: r.ok ? "The reset could not run." : asMessage(r) };
+}
+
+async function accountFinishTotp(req: unknown): Promise<Result> {
+  if (!setupDone(root)) return { ok: false, message: "Finish setup first." };
+  const o = (typeof req === "object" && req !== null ? req : {}) as Record<string, unknown>;
+  if (typeof o["code"] !== "string" || !/^\d{6}$/.test(o["code"])) return { ok: false, message: "Enter the 6-digit code from the new entry." };
+  const pending = pendingTotp;
+  if (!pending || pending.expiresAt <= Date.now()) {
+    pendingTotp = undefined;
+    return { ok: false, message: "Start the authenticator reset again." };
+  }
+  const r = await runAccountCli(["reset-totp", "--login", pending.login, "--finish", "--stdin"], { secret: pending.secret, code: o["code"] });
+  log(`web authenticator reset: ${r.ok ? "ok" : "failed"}`);
+  if (!r.ok) return { ok: false, message: asMessage(r) };
+  pendingTotp = undefined;
+  return { ok: true, message: `Authenticator replaced. ${Number(r["ended"]) || 0} web session(s) ended.` };
+}
+
 // ---- app wiring ----
 function setupIpc(): void {
   const handle = <R>(channel: string, run: (...args: unknown[]) => Promise<R> | R): void => {
@@ -586,6 +653,13 @@ function setupIpc(): void {
   handle("openExternal", (url): Result => {
     if (url !== TERMS_URL) return { ok: false, message: "This link is not allowed." };
     void shell.openExternal(TERMS_URL);
+    return { ok: true };
+  });
+  handle("resetPassword", (req) => accountResetPassword(req));
+  handle("beginTotpReset", (req) => accountBeginTotp(req));
+  handle("finishTotpReset", (req) => accountFinishTotp(req));
+  handle("cancelTotpReset", (): Result => {
+    pendingTotp = undefined;
     return { ok: true };
   });
   handle("retry", async (service): Promise<Result> => {

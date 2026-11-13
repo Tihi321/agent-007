@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { test } from "node:test";
 import { AuthError, GENERIC_FAIL, ownerCaps } from "../../src/web/auth.js";
 import type { WebUser } from "../../src/web/schemas.js";
@@ -447,23 +448,95 @@ test("HTTP: claim and login over the gateway set a __Host- cookie with Secure, H
   }
 });
 
-test("CLI: owner-code prints a code once, refuses a second owner without --reset; lockdown ends every session", async () => {
+test("CLI: owner-code, lockdown, reset-password and reset-totp; a reset clears a lockout a running gateway holds", async () => {
   const s = mkStack({ t: Date.now() });
   const lines: string[] = [];
-  assert.equal(runWebCli(["owner-code", "--data-dir", s.dir], { out: (l) => lines.push(l) }), 0);
+  assert.equal(await runWebCli(["owner-code", "--data-dir", s.dir], { out: (l) => lines.push(l) }), 0);
   assert.match(lines[1] ?? "", /^[A-Za-z0-9_-]{20,}$/);
   assert.match(lines.join("\n"), /localhost:47009\/claim/);
   const begin = s.stack.auth.claimBegin(lines[1], LOCAL);
   await s.stack.auth.claimFinish({ claimId: begin.claimId, login: "owner@example.com", displayName: "O", password: "a long enough password", totpCode: totpAt(begin.totp.secret, totpStep(s.clock.t)) }, LOCAL);
   const l2: string[] = [];
-  assert.equal(runWebCli(["owner-code", "--data-dir", s.dir], { out: (l) => l2.push(l) }), 1);
+  assert.equal(await runWebCli(["owner-code", "--data-dir", s.dir], { out: (l) => l2.push(l) }), 1);
   assert.match(l2.join(), /already exists/);
-  assert.equal(runWebCli(["owner-code", "--data-dir", s.dir, "--reset"], { out: () => undefined }), 0);
+  assert.equal(await runWebCli(["owner-code", "--data-dir", s.dir, "--reset"], { out: () => undefined }), 0);
   const l3: string[] = [];
-  assert.equal(runWebCli(["lockdown", "--data-dir", s.dir], { out: (l) => l3.push(l) }), 0);
+  assert.equal(await runWebCli(["lockdown", "--data-dir", s.dir], { out: (l) => l3.push(l) }), 0);
   assert.match(l3.join(), /ended 1 web session/);
-  assert.equal(runWebCli(["owner-code"], { out: () => undefined }), 2);
-  assert.equal(runWebCli(["owner-code", "--data-dir", s.dir, "--bogus"], { out: () => undefined }), 2);
+  assert.equal(await runWebCli(["owner-code"], { out: () => undefined }), 2);
+  assert.equal(await runWebCli(["owner-code", "--data-dir", s.dir, "--bogus"], { out: () => undefined }), 2);
+
+  // reset-password: interactive (hidden asks), a mismatch changes nothing, --password is refused
+  const login = "owner@example.com";
+  const answers = (...a: string[]) => ({ out: (l: string) => lines2.push(l), ask: async () => a.shift() ?? "" });
+  let lines2: string[] = [];
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login], answers("first new password", "something else")), 1);
+  assert.match(lines2.join(), /differ/);
+  lines2 = [];
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--password", "x"], answers()), 2);
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--password=x"], answers()), 2);
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login], { out: () => undefined }), 2, "not interactive");
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir], answers()), 2, "login missing");
+  s.clock.t += 60_000;
+  const code = (secret: string) => totpAt(secret, totpStep(s.clock.t));
+  const ctx = { ...LOCAL, ip: "cli-test" };
+  await assert.rejects(() => s.stack.auth.loginPassword({ login, password: "first new password", totpCode: code(begin.totp.secret) }, ctx), AuthError);
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login], answers("first new password", "first new password")), 0);
+  assert.match(lines2.join(), /Password reset for owner@example\.com\. Ended \d+ web session/);
+  assert.equal((await s.stack.auth.loginPassword({ login, password: "first new password", totpCode: code(begin.totp.secret) }, ctx)).role, "owner", "new password, same authenticator");
+
+  // a running gateway (its own tracker on the same file) holds a lockout; the CLI reset in another process clears it
+  const { LockoutTracker } = await import("../../src/web/ratelimit.js");
+  const lockFile = join(s.dir, "web", "lockout.json");
+  const gateway = new LockoutTracker({ file: lockFile });
+  for (let i = 0; i < 5; i++) gateway.fail(`login:${login}`);
+  assert.ok(gateway.lockedFor(`login:${login}`) > 0);
+  const one: string[] = [];
+  const machine = { out: (l: string) => one.push(l), readStdin: async () => JSON.stringify({ password: "machine made password" }) };
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--stdin"], machine), 0);
+  assert.deepEqual(one.map((l) => (JSON.parse(l) as { ok: boolean }).ok), [true]);
+  assert.equal(gateway.lockedFor(`login:${login}`), 0, "the running gateway sees the clear");
+  gateway.fail(`login:${login}`);
+  assert.equal(gateway.lockedFor(`login:${login}`), 0, "its next write does not resurrect the lock");
+  const short: string[] = [];
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--stdin"], { out: (l) => short.push(l), readStdin: async () => '{"password":"short"}' }), 1);
+  assert.equal((JSON.parse(short[0] as string) as { ok: boolean }).ok, false);
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", login, "--stdin"], { out: () => undefined, readStdin: async () => "not json" }), 2);
+  const nobody: string[] = [];
+  assert.equal(await runWebCli(["reset-password", "--data-dir", s.dir, "--login", "nobody@example.com", "--stdin"], { out: (l) => nobody.push(l), readStdin: async () => "{}" }), 1);
+  assert.equal((JSON.parse(nobody[0] as string) as { message: string }).message, "No user with that login.");
+
+  // reset-totp: machine mode begin/finish, then interactive with one wrong code
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--finish"], machine), 2);
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--begin", "--finish", "--stdin"], machine), 2);
+  const b: string[] = [];
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--begin"], { out: (l) => b.push(l) }), 0);
+  const fresh = JSON.parse(b[0] as string) as { ok: boolean; secret: string; uri: string };
+  assert.match(fresh.uri, /^otpauth:\/\/totp\//);
+  const f: string[] = [];
+  const finish = (secret: string, c: string) => ({ out: (l: string) => f.push(l), readStdin: async () => JSON.stringify({ secret, code: c }) });
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--finish", "--stdin"], finish(fresh.secret, "000000")), 1);
+  assert.equal((JSON.parse(f[0] as string) as { ok: boolean }).ok, false);
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login, "--finish", "--stdin"], finish(fresh.secret, totpAt(fresh.secret, totpStep(Date.now())))), 0);
+  assert.equal((JSON.parse(f[1] as string) as { ok: boolean }).ok, true);
+  lines2 = [];
+  let wrongOnce = true;
+  const interactive = {
+    out: (l: string) => lines2.push(l),
+    ask: async () => {
+      const secret = lines2[1] as string;
+      if (wrongOnce) {
+        wrongOnce = false;
+        return "000000";
+      }
+      return totpAt(secret, totpStep(Date.now()));
+    },
+  };
+  assert.equal(await runWebCli(["reset-totp", "--data-dir", s.dir, "--login", login], interactive), 0);
+  assert.match(lines2.join("\n"), /wrong[\s\S]*Authenticator replaced for owner@example\.com/);
+  const secret3 = lines2[1] as string;
+  s.clock.t = Date.now() + 120_000;
+  assert.equal((await s.stack.auth.loginPassword({ login, password: "machine made password", totpCode: totpAt(secret3, totpStep(s.clock.t)) }, ctx)).role, "owner", "new authenticator, same password");
 });
 
 test("L5: an AT-flagged authData cut short is a 401-class verification failure, never a 500", async () => {

@@ -36,6 +36,8 @@
     "web": "node dist/src/web/main.js",
     "web-owner-code": "node dist/src/web/cli.js owner-code",
     "web-lockdown": "node dist/src/web/cli.js lockdown",
+    "web-reset-password": "node dist/src/web/cli.js reset-password",
+    "web-reset-totp": "node dist/src/web/cli.js reset-totp",
     "setup:local": "node dist/scripts/setup-local.js",
     "web:local": "node dist/scripts/local-run.js web",
     "start:local": "node dist/scripts/local-run.js start",
